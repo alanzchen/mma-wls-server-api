@@ -111,6 +111,7 @@ def test_run_and_fetch_artifacts(import_app, monkeypatch):
     assert payload["command"][0] == "sandbox-exec"
     assert payload["active"] is True
     assert payload["supersedes"] == []
+    assert payload["assets"] == []
     artifacts_map = {item["path"]: item["size_bytes"] for item in payload["artifacts"]}
     assert artifacts_map["result.txt"] == len(b"result")
     assert artifacts_map["test.wls"] == len(b"Print[1]\n")
@@ -119,11 +120,13 @@ def test_run_and_fetch_artifacts(import_app, monkeypatch):
     assert listed["execution_id"] == execution_id
     assert listed["nickname"] == "first-run"
     assert listed["active"] is True
+    assert listed["assets"] == []
 
     catalog = client.get("/executions").json()["executions"]
     assert len(catalog) == 1
     assert catalog[0]["execution_id"] == execution_id
     assert catalog[0]["nickname"] == "first-run"
+    assert catalog[0]["assets"] == []
 
     artifact_response = client.get(f"/executions/{execution_id}/artifacts/result.txt")
     assert artifact_response.status_code == 200
@@ -158,6 +161,72 @@ def test_duplicate_nickname_rejected(import_app, monkeypatch):
 
     duplicate = client.post("/run", files=files, data={"nickname": "unique"})
     assert duplicate.status_code == 409
+
+
+def test_run_with_assets(import_app, monkeypatch):
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    files = [
+        ("file", ("main.wls", b"Print[\"hello\"]\n", "application/plain")),
+        ("assets", ("data.txt", b"42", "text/plain")),
+        ("assets", ("notes.md", b"# Notes", "text/markdown")),
+    ]
+    response = client.post("/run", files=files)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assets"] == ["assets/data.txt", "assets/notes.md"]
+
+    execution_id = payload["execution_id"]
+    listed = client.get(f"/executions/{execution_id}").json()
+    assert listed["assets"] == ["assets/data.txt", "assets/notes.md"]
+    artifact_paths = {item["path"] for item in listed["artifacts"]}
+    assert "assets/data.txt" in artifact_paths
+    assert "assets/notes.md" in artifact_paths
+
+
+def test_upload_assets_to_existing_execution(import_app, monkeypatch):
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    base_files = {"file": ("main.wls", b"Print[\"base\"]", "application/plain")}
+    base_response = client.post("/run", files=base_files)
+    execution_id = base_response.json()["execution_id"]
+
+    upload_files = [
+        ("assets", ("more.txt", b"data", "text/plain")),
+        ("assets", ("other.bin", b"\x00\x01", "application/octet-stream")),
+    ]
+    upload_response = client.post(f"/executions/{execution_id}/assets", files=upload_files)
+    assert upload_response.status_code == 200
+    payload = upload_response.json()
+    assert payload["assets"] == ["assets/more.txt", "assets/other.bin"]
+
+    detail = client.get(f"/executions/{execution_id}").json()
+    assert set(detail["assets"]) == {"assets/more.txt", "assets/other.bin"}
+    artifacts = {item["path"] for item in detail["artifacts"]}
+    assert "assets/more.txt" in artifacts
+    assert "assets/other.bin" in artifacts
+
+
+def test_run_with_invalid_assets(import_app, monkeypatch):
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    files_missing_name = [
+        ("file", ("main.wls", b"Print[\"hi\"]", "application/plain")),
+        ("assets", ("", b"no-name", "text/plain")),
+    ]
+    missing = client.post("/run", files=files_missing_name)
+    assert missing.status_code == 422
+
+    files_traversal = [
+        ("file", ("main.wls", b"Print[\"hi\"]", "application/plain")),
+        ("assets", ("../escape.txt", b"bad", "text/plain")),
+    ]
+    traversal = client.post("/run", files=files_traversal)
+    assert traversal.status_code == 200
+    assert traversal.json()["assets"] == ["assets/escape.txt"]
 
 
 def test_replace_nickname_creates_history(import_app, monkeypatch):
@@ -253,11 +322,13 @@ def test_execution_metadata_persists_between_imports(import_app, monkeypatch):
     record = catalog[0]
     assert record["execution_id"] == execution_id
     assert record["nickname"] == "persisted"
+    assert isinstance(record["assets"], list)
     assert any(item["path"] == "out.txt" for item in record["artifacts"])
 
     detail = client.get(f"/executions/{execution_id}").json()
     assert detail["stdout"] == "done"
     assert detail["nickname"] == "persisted"
+    assert isinstance(detail["assets"], list)
 
 
 def test_password_required(import_app, monkeypatch):
@@ -271,9 +342,25 @@ def test_password_required(import_app, monkeypatch):
     headers = {"X-Runner-Password": "secret"}
     ok = client.post("/run", files=files, headers=headers)
     assert ok.status_code == 200
+    assert ok.json()["assets"] == []
+    execution_id = ok.json()["execution_id"]
 
     list_missing = client.get("/executions")
     assert list_missing.status_code == 401
 
     list_ok = client.get("/executions", headers=headers)
     assert list_ok.status_code == 200
+
+    add_assets = client.post(
+        f"/executions/{execution_id}/assets",
+        files=[("assets", ("added.txt", b"extra", "text/plain"))],
+    )
+    assert add_assets.status_code == 401
+
+    add_assets_ok = client.post(
+        f"/executions/{execution_id}/assets",
+        headers=headers,
+        files=[("assets", ("added.txt", b"extra", "text/plain"))],
+    )
+    assert add_assets_ok.status_code == 200
+    assert "assets/added.txt" in add_assets_ok.json()["assets"]

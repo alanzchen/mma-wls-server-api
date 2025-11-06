@@ -24,11 +24,13 @@ curl -X POST \
   -F "file=@path/to/script.wls" \
   -F "nickname=my-run-name" \
   -F "nickname_mode=unique" \
+  -F "assets=@path/to/data.csv" \
+  -F "assets=@path/to/config.json" \
   -H "X-Runner-Password: change-me" \
   "http://127.0.0.1:8000/run?timeout=60"
 ```
 
-The response contains the script's exit code, stdout, stderr, runtime, an optional `nickname`, a unique `execution_id`, and the artifacts created in that run. Set `nickname_mode=replace` to supersede an existing execution that already uses the nickname (history is retained). When `WLS_API_PASSWORD` is configured, every request must include the password via the `X-Runner-Password` header (or an `Authorization: Bearer` token).
+The response contains the script's exit code, stdout, stderr, runtime, an optional `nickname`, a unique `execution_id`, the list of staged asset paths, and the artifacts created in that run. Set `nickname_mode=replace` to supersede an existing execution that already uses the nickname (history is retained). When `WLS_API_PASSWORD` is configured, every request must include the password via the `X-Runner-Password` header (or an `Authorization: Bearer` token).
 
 ### List Executions
 ```bash
@@ -45,6 +47,17 @@ curl "http://127.0.0.1:8000/executions/<execution_id>"
 curl -O \
   "http://127.0.0.1:8000/executions/<execution_id>/artifacts/path/to/file"
 ```
+
+### Upload Additional Assets to an Existing Execution
+```bash
+curl -X POST \
+  -H "X-Runner-Password: change-me" \
+  -F "assets=@path/to/new-data.parquet" \
+  -F "assets=@path/to/more-config.json" \
+  "http://127.0.0.1:8000/executions/<execution_id>/assets"
+```
+
+The response lists the merged asset inventory and updated artifacts, letting you stage supporting files after the initial run.
 
 Each execution directory stores its own `metadata.json`, ensuring execution history persists across server restarts.
 

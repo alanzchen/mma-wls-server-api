@@ -4,6 +4,8 @@ This repository currently ships a single automation agent that accepts WolframSc
 
 ## Capabilities
 - Upload `.wls` scripts via `POST /run` with optional nicknames and conflict policies (`nickname_mode`).
+- Attach additional asset files in the same request (multiple `assets` fields) so scripts can reference staged resources.
+- Add more assets later via `POST /executions/{id}/assets` as workflows evolve.
 - Execute scripts using `sandbox-exec` with optional CPU and memory limits enforced through `RLIMIT_CPU` and `RLIMIT_AS`.
 - Persist execution outputs, metadata, and generated artifacts for later retrieval.
 - List, inspect, download artifacts, and delete executions through the `/executions` endpoints.

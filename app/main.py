@@ -224,6 +224,32 @@ def _list_artifacts(execution_dir: Path) -> list[Artifact]:
     return sorted(artifacts, key=lambda item: item["path"])
 
 
+async def _store_assets(execution_dir: Path, uploads: list[UploadFile]) -> list[str]:
+    if not uploads:
+        return []
+    assets_dir = execution_dir / "assets"
+    assets_dir.mkdir(exist_ok=True)
+    saved: list[str] = []
+    for upload in uploads:
+        try:
+            if not upload.filename:
+                raise HTTPException(status_code=400, detail="Asset uploads must include a filename.")
+            asset_name = Path(upload.filename).name
+            if not asset_name:
+                raise HTTPException(status_code=400, detail="Asset filename is invalid.")
+            asset_bytes = await upload.read()
+            asset_path = (assets_dir / asset_name).resolve()
+            try:
+                asset_path.relative_to(assets_dir)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Asset filename is invalid.") from exc
+            asset_path.write_bytes(asset_bytes)
+            saved.append(asset_path.relative_to(execution_dir).as_posix())
+        finally:
+            await upload.close()
+    return sorted(saved)
+
+
 def _load_execution_metadata(execution_dir: Path) -> dict[str, Any]:
     metadata_path = execution_dir / METADATA_FILENAME
     metadata: dict[str, Any] = {}
@@ -246,6 +272,7 @@ def _load_execution_metadata(execution_dir: Path) -> dict[str, Any]:
     metadata.setdefault("active", metadata.get("active", True))
     metadata.setdefault("supersedes", [])
     metadata.setdefault("superseded_by", [])
+    metadata.setdefault("assets", [])
     metadata["artifacts"] = _list_artifacts(execution_dir)
     return metadata
 
@@ -404,6 +431,10 @@ async def run_wolframscript(
         default="unique",
         description='Nickname conflict policy: "unique" or "replace".',
     ),
+    assets: list[UploadFile] | None = File(
+        default=None,
+        description="Optional additional files to stage alongside the script.",
+    ),
     _: None = Depends(_require_password),
 ) -> dict[str, Any]:
     if not file.filename:
@@ -446,6 +477,9 @@ async def run_wolframscript(
 
     script_path = execution_dir / script_filename
     script_path.write_bytes(content)
+
+    asset_files = assets or []
+    saved_assets = await _store_assets(execution_dir, asset_files) if asset_files else []
 
     sandbox_profile = _build_sandbox_profile(execution_dir)
     command = [
@@ -503,6 +537,7 @@ async def run_wolframscript(
         "active": True,
         "supersedes": superseded_ids,
         "superseded_by": [],
+        "assets": saved_assets,
     }
     _write_execution_metadata(execution_dir, metadata)
 
@@ -574,3 +609,39 @@ async def fetch_execution_artifact(
         media_type="application/octet-stream",
         headers={"X-Artifact-Path": candidate.relative_to(execution_dir).as_posix()},
     )
+
+
+@app.post("/executions/{execution_id}/assets")
+async def upload_execution_assets(
+    execution_id: str,
+    assets: list[UploadFile] = File(..., description="Files to upload into the execution assets directory."),
+    _: None = Depends(_require_password),
+) -> dict[str, Any]:
+    if not assets:
+        raise HTTPException(status_code=400, detail="At least one asset must be provided.")
+
+    execution_dir = _resolve_execution_dir(execution_id)
+    staged_assets = await _store_assets(execution_dir, assets)
+
+    metadata = _load_execution_metadata(execution_dir)
+    existing_assets = set(metadata.get("assets") or [])
+    for asset in staged_assets:
+        existing_assets.add(asset)
+    metadata["assets"] = sorted(existing_assets)
+    metadata["artifacts"] = _list_artifacts(execution_dir)
+    _write_execution_metadata(execution_dir, metadata)
+
+    _append_execution_log(
+        {
+            "event": "assets_uploaded",
+            "timestamp": _utcnow_iso(),
+            "execution_id": execution_id,
+            "assets": staged_assets,
+        }
+    )
+
+    return {
+        "execution_id": execution_id,
+        "assets": metadata["assets"],
+        "artifacts": metadata["artifacts"],
+    }
