@@ -1,0 +1,19 @@
+[project]
+name = "mma-wls-server-api"
+version = "0.1.0"
+description = "FastAPI server that executes uploaded WolframScript files via the wolframscript CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.121.0",
+    "python-multipart>=0.0.20",
+    "uvicorn[standard]>=0.38.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=1.18.2",
+    "pytest>=8.4.2",
+    "requests>=2.32.5",
+]
