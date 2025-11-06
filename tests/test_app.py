@@ -24,6 +24,7 @@ _CONFIG_ENV_VARS = [
     "WLS_CPU_LIMIT_SECONDS",
     "WLS_MEMORY_LIMIT_MB",
     "WLS_CLEANUP_INTERVAL_SECONDS",
+    "WLS_API_PASSWORD",
 ]
 
 
@@ -257,3 +258,22 @@ def test_execution_metadata_persists_between_imports(import_app, monkeypatch):
     detail = client.get(f"/executions/{execution_id}").json()
     assert detail["stdout"] == "done"
     assert detail["nickname"] == "persisted"
+
+
+def test_password_required(import_app, monkeypatch):
+    client, module, *_ = import_app({"WLS_API_PASSWORD": "secret"})
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    files = {"file": ("test.wls", b"", "application/plain")}
+    missing = client.post("/run", files=files)
+    assert missing.status_code == 401
+
+    headers = {"X-Runner-Password": "secret"}
+    ok = client.post("/run", files=files, headers=headers)
+    assert ok.status_code == 200
+
+    list_missing = client.get("/executions")
+    assert list_missing.status_code == 401
+
+    list_ok = client.get("/executions", headers=headers)
+    assert list_ok.status_code == 200

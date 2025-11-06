@@ -24,10 +24,11 @@ curl -X POST \
   -F "file=@path/to/script.wls" \
   -F "nickname=my-run-name" \
   -F "nickname_mode=unique" \
+  -H "X-Runner-Password: change-me" \
   "http://127.0.0.1:8000/run?timeout=60"
 ```
 
-The response contains the script's exit code, stdout, stderr, runtime, an optional `nickname`, a unique `execution_id`, and the artifacts created in that run. Set `nickname_mode=replace` to supersede an existing execution that already uses the nickname (history is retained).
+The response contains the script's exit code, stdout, stderr, runtime, an optional `nickname`, a unique `execution_id`, and the artifacts created in that run. Set `nickname_mode=replace` to supersede an existing execution that already uses the nickname (history is retained). When `WLS_API_PASSWORD` is configured, every request must include the password via the `X-Runner-Password` header (or an `Authorization: Bearer` token).
 
 ### List Executions
 ```bash
@@ -65,5 +66,6 @@ curl -X DELETE "http://127.0.0.1:8000/executions/<execution_id>"
 | `WLS_RETENTION_SECONDS` | Automatically delete executions older than this age. |
 | `WLS_MAX_EXECUTIONS` | Keep only the newest N executions (older ones are removed automatically). |
 | `WLS_CLEANUP_INTERVAL_SECONDS` | Period for the background retention sweep. Defaults to 300 seconds. |
+| `WLS_API_PASSWORD` | If set, requires callers to authenticate using `X-Runner-Password` or `Authorization: Bearer`/Basic headers. |
 
 > **Warning:** Running arbitrary WolframScript files can be dangerous. Each execution is sandboxed via `sandbox-exec` on macOS, but you should still only run scripts from trusted sources.

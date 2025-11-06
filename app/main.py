@@ -14,7 +14,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, TypedDict
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
@@ -78,6 +88,8 @@ DENYLIST_PATTERNS = _compile_patterns(os.environ.get("WLS_DENYLIST_PATTERNS"))
 CPU_LIMIT_SECONDS = _read_int_env("WLS_CPU_LIMIT_SECONDS")
 MEMORY_LIMIT_MB = _read_int_env("WLS_MEMORY_LIMIT_MB")
 MEMORY_LIMIT_BYTES = MEMORY_LIMIT_MB * 1024 * 1024 if MEMORY_LIMIT_MB else None
+
+API_PASSWORD = os.environ.get("WLS_API_PASSWORD")
 
 RETENTION_SECONDS = _read_float_env("WLS_RETENTION_SECONDS")
 MAX_EXECUTIONS = _read_int_env("WLS_MAX_EXECUTIONS")
@@ -253,6 +265,39 @@ def _append_execution_log(entry: dict[str, Any]) -> None:
         handle.write(log_line + "\n")
 
 
+async def _require_password(
+    password_header: str | None = Header(default=None, alias="X-Runner-Password"),
+    authorization: str | None = Header(default=None),
+) -> None:
+    if not API_PASSWORD:
+        return
+
+    if password_header == API_PASSWORD:
+        return
+
+    if authorization:
+        if authorization.startswith("Bearer "):
+            token = authorization[len("Bearer ") :].strip()
+            if token == API_PASSWORD:
+                return
+        if authorization.startswith("Basic "):
+            import base64
+
+            try:
+                decoded = base64.b64decode(authorization[len("Basic ") :]).decode("utf-8")
+                _, _, pwd = decoded.partition(":")
+                if pwd == API_PASSWORD:
+                    return
+            except (ValueError, UnicodeDecodeError):
+                pass
+
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid or missing password.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def _list_all_executions() -> list[dict[str, Any]]:
     records = [_load_execution_metadata(directory) for directory in _iter_execution_dirs()]
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
@@ -337,6 +382,11 @@ async def _cleanup_loop() -> None:
         raise
 
 
+@app.get("/executions")
+async def list_executions(_: None = Depends(_require_password)) -> dict[str, Any]:
+    return {"executions": _list_all_executions()}
+
+
 @app.post("/run")
 async def run_wolframscript(
     file: UploadFile = File(..., description="WolframScript file (.wls) to execute."),
@@ -354,6 +404,7 @@ async def run_wolframscript(
         default="unique",
         description='Nickname conflict policy: "unique" or "replace".',
     ),
+    _: None = Depends(_require_password),
 ) -> dict[str, Any]:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Upload must include a filename.")
@@ -474,19 +525,18 @@ async def run_wolframscript(
     return metadata
 
 
-@app.get("/executions")
-async def list_executions() -> dict[str, Any]:
-    return {"executions": _list_all_executions()}
-
-
 @app.get("/executions/{execution_id}")
-async def get_execution(execution_id: str) -> dict[str, Any]:
+async def get_execution(
+    execution_id: str, _: None = Depends(_require_password)
+) -> dict[str, Any]:
     execution_dir = _resolve_execution_dir(execution_id)
     return _load_execution_metadata(execution_dir)
 
 
 @app.delete("/executions/{execution_id}", status_code=204)
-async def delete_execution(execution_id: str) -> Response:
+async def delete_execution(
+    execution_id: str, _: None = Depends(_require_password)
+) -> Response:
     execution_dir = _resolve_execution_dir(execution_id)
     metadata = _load_execution_metadata(execution_dir)
     _delete_execution_dir(execution_dir)
@@ -502,7 +552,11 @@ async def delete_execution(execution_id: str) -> Response:
 
 
 @app.get("/executions/{execution_id}/artifacts/{artifact_path:path}")
-async def fetch_execution_artifact(execution_id: str, artifact_path: str) -> FileResponse:
+async def fetch_execution_artifact(
+    execution_id: str,
+    artifact_path: str,
+    _: None = Depends(_require_password),
+) -> FileResponse:
     execution_dir = _resolve_execution_dir(execution_id)
     candidate = (execution_dir / artifact_path).resolve()
 

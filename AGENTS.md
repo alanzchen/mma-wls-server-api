@@ -8,6 +8,7 @@ This repository currently ships a single automation agent that accepts WolframSc
 - Persist execution outputs, metadata, and generated artifacts for later retrieval.
 - List, inspect, download artifacts, and delete executions through the `/executions` endpoints.
 - Enforce simple security policies using allowlist and denylist regex patterns before execution.
+- Optionally require per-request authentication via `WLS_API_PASSWORD` using the `X-Runner-Password` or `Authorization` headers.
 - Emit structured newline-delimited JSON logs when `WLS_EXECUTION_LOG` is configured.
 
 ## Lifecycle
