@@ -98,6 +98,9 @@ CLEANUP_INTERVAL_SECONDS = _read_float_env("WLS_CLEANUP_INTERVAL_SECONDS") or 30
 NICKNAME_MAX_LENGTH = 128
 ALLOWED_NICKNAME_MODES = {"unique", "replace"}
 
+# Allowed Wolfram Language file extensions
+WOLFRAM_FILE_EXTENSIONS = {".wls", ".wl", ".m", ".nb", ".cdf", ".mx"}
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -120,7 +123,7 @@ app = FastAPI(
     title="WolframScript Runner",
     version="0.3.0",
     description=(
-        "Upload a WolframScript (.wls) file, execute it via the wolframscript CLI, "
+        "Upload a Wolfram Language file (.wls, .wl, .m, .nb, etc.), execute it via the wolframscript CLI, "
         "and manage the produced artifacts."
     ),
     lifespan=_lifespan,
@@ -416,7 +419,7 @@ async def list_executions(_: None = Depends(_require_password)) -> dict[str, Any
 
 @app.post("/run")
 async def run_wolframscript(
-    file: UploadFile = File(..., description="WolframScript file (.wls) to execute."),
+    file: UploadFile = File(..., description="Wolfram Language file (.wls, .wl, .m, .nb, etc.) to execute."),
     timeout: float = Query(
         60.0,
         gt=0,
@@ -441,8 +444,12 @@ async def run_wolframscript(
         raise HTTPException(status_code=400, detail="Upload must include a filename.")
 
     script_filename = Path(file.filename).name
-    if not script_filename.lower().endswith(".wls"):
-        raise HTTPException(status_code=400, detail="Only .wls files are supported.")
+    file_ext = Path(script_filename).suffix.lower()
+    if file_ext not in WOLFRAM_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only Wolfram Language files are supported: {', '.join(sorted(WOLFRAM_FILE_EXTENSIONS))}"
+        )
 
     nickname_mode = nickname_mode.strip().lower()
     if nickname_mode not in ALLOWED_NICKNAME_MODES:
@@ -643,5 +650,237 @@ async def upload_execution_assets(
     return {
         "execution_id": execution_id,
         "assets": metadata["assets"],
+        "artifacts": metadata["artifacts"],
+    }
+
+
+class FileInfo(TypedDict):
+    path: str
+    size_bytes: int
+    mtime: float
+    is_metadata: bool
+
+
+@app.get("/executions/{execution_id}/files")
+async def list_execution_files(
+    execution_id: str, _: None = Depends(_require_password)
+) -> dict[str, Any]:
+    """List all files in an execution directory with metadata."""
+    execution_dir = _resolve_execution_dir(execution_id)
+    files: list[FileInfo] = []
+
+    for path in execution_dir.rglob("*"):
+        if path.is_file():
+            stat = path.stat()
+            files.append(
+                {
+                    "path": path.relative_to(execution_dir).as_posix(),
+                    "size_bytes": stat.st_size,
+                    "mtime": stat.st_mtime,
+                    "is_metadata": path.name == METADATA_FILENAME,
+                }
+            )
+
+    return {
+        "execution_id": execution_id,
+        "files": sorted(files, key=lambda f: f["path"]),
+    }
+
+
+@app.put("/executions/{execution_id}/files/{file_path:path}")
+async def upload_execution_file(
+    execution_id: str,
+    file_path: str,
+    file: UploadFile = File(..., description="File to upload."),
+    _: None = Depends(_require_password),
+) -> dict[str, Any]:
+    """Upload or update a file in the execution directory."""
+    execution_dir = _resolve_execution_dir(execution_id)
+
+    # Prevent uploading metadata.json directly
+    if file_path == METADATA_FILENAME or file_path.endswith(f"/{METADATA_FILENAME}"):
+        raise HTTPException(status_code=400, detail="Cannot modify metadata file directly.")
+
+    # Resolve and validate the target path
+    target_path = (execution_dir / file_path).resolve()
+    try:
+        target_path.relative_to(execution_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid file path.") from exc
+
+    # Create parent directories if needed
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write the file
+    content = await file.read()
+    await file.close()
+    target_path.write_bytes(content)
+
+    stat = target_path.stat()
+    return {
+        "execution_id": execution_id,
+        "path": file_path,
+        "size_bytes": stat.st_size,
+        "mtime": stat.st_mtime,
+    }
+
+
+@app.delete("/executions/{execution_id}/files/{file_path:path}", status_code=204)
+async def delete_execution_file(
+    execution_id: str,
+    file_path: str,
+    _: None = Depends(_require_password),
+) -> Response:
+    """Delete a file from the execution directory."""
+    execution_dir = _resolve_execution_dir(execution_id)
+
+    # Prevent deleting metadata.json
+    if file_path == METADATA_FILENAME or file_path.endswith(f"/{METADATA_FILENAME}"):
+        raise HTTPException(status_code=400, detail="Cannot delete metadata file.")
+
+    # Resolve and validate the target path
+    target_path = (execution_dir / file_path).resolve()
+    try:
+        target_path.relative_to(execution_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="File not found.") from exc
+
+    if not target_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    target_path.unlink()
+
+    # Clean up empty parent directories (but not the execution dir itself)
+    parent = target_path.parent
+    while parent != execution_dir:
+        try:
+            if not any(parent.iterdir()):
+                parent.rmdir()
+                parent = parent.parent
+            else:
+                break
+        except (OSError, ValueError):
+            break
+
+    return Response(status_code=204)
+
+
+@app.post("/executions/{execution_id}/execute")
+async def execute_file(
+    execution_id: str,
+    file_path: str = Form(..., description="Path to the Wolfram Language file to execute within the execution directory."),
+    timeout: float = Form(
+        60.0,
+        gt=0,
+        le=600,
+        description="Maximum time in seconds the script is allowed to run.",
+    ),
+    _: None = Depends(_require_password),
+) -> dict[str, Any]:
+    """Execute a Wolfram Language file within an existing execution directory."""
+    execution_dir = _resolve_execution_dir(execution_id)
+
+    # Resolve and validate the script path
+    script_path = (execution_dir / file_path).resolve()
+    try:
+        script_path.relative_to(execution_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Script file not found.") from exc
+
+    if not script_path.is_file():
+        raise HTTPException(status_code=404, detail="Script file not found.")
+
+    file_ext = script_path.suffix.lower()
+    if file_ext not in WOLFRAM_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only Wolfram Language files can be executed: {', '.join(sorted(WOLFRAM_FILE_EXTENSIONS))}"
+        )
+
+    # Validate script content
+    script_content = script_path.read_bytes()
+    _validate_script_content(script_content)
+
+    # Build and execute the command
+    sandbox_profile = _build_sandbox_profile(execution_dir)
+    command = [
+        "sandbox-exec",
+        "-p",
+        sandbox_profile,
+        "wolframscript",
+        "-file",
+        str(script_path),
+    ]
+
+    started_at = _utcnow_iso()
+    start = time.monotonic()
+    preexec_fn = _make_preexec_fn()
+
+    try:
+        result = await run_in_threadpool(
+            _run_wolframscript, command, execution_dir, timeout, preexec_fn
+        )
+        elapsed = time.monotonic() - start
+        completed_at = _utcnow_iso()
+    except subprocess.TimeoutExpired as exc:  # pragma: no cover - defensive branch
+        elapsed = time.monotonic() - start
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "message": f"wolframscript timed out after {timeout} seconds.",
+                "timeout_seconds": timeout,
+                "stdout": exc.stdout or "",
+                "stderr": exc.stderr or "",
+                "elapsed_seconds": elapsed,
+            },
+        ) from exc
+    except FileNotFoundError as exc:  # pragma: no cover - depends on host environment
+        missing = exc.filename or "sandbox-exec"
+        raise HTTPException(
+            status_code=500,
+            detail=f"{missing} command is not available on the server.",
+        ) from exc
+
+    # Update metadata with execution results
+    metadata = _load_execution_metadata(execution_dir)
+    execution_record = {
+        "file_path": file_path,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "returncode": result.returncode,
+        "elapsed_seconds": elapsed,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "timeout_seconds": timeout,
+    }
+
+    # Store execution history
+    if "execution_history" not in metadata:
+        metadata["execution_history"] = []
+    metadata["execution_history"].append(execution_record)
+
+    # Update last execution info
+    metadata["last_execution"] = execution_record
+    metadata["artifacts"] = _list_artifacts(execution_dir)
+    _write_execution_metadata(execution_dir, metadata)
+
+    _append_execution_log(
+        {
+            "event": "file_executed",
+            "timestamp": completed_at,
+            "execution_id": execution_id,
+            "file_path": file_path,
+            "returncode": result.returncode,
+            "elapsed_seconds": elapsed,
+        }
+    )
+
+    return {
+        "execution_id": execution_id,
+        "file_path": file_path,
+        "returncode": result.returncode,
+        "elapsed_seconds": elapsed,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
         "artifacts": metadata["artifacts"],
     }
