@@ -213,7 +213,7 @@ class WLSClient:
     def execute_file(
         self, execution_id: str, file_path: str, timeout: float = 60.0
     ) -> dict[str, Any]:
-        """Execute a .wls file on the server."""
+        """Execute a Wolfram Language file on the server."""
         self.log(f"Executing: {file_path}")
         response = self.session.post(
             self._url(f"/executions/{execution_id}/execute"),
@@ -393,8 +393,8 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # === run command ===
-    run_parser = subparsers.add_parser("run", help="Upload and execute a WolframScript file")
-    run_parser.add_argument("script", type=Path, help="Path to .wls script file")
+    run_parser = subparsers.add_parser("run", help="Upload and execute a Wolfram Language file")
+    run_parser.add_argument("script", type=Path, help="Path to Wolfram Language file (.wls, .wl, .m, etc.)")
     run_parser.add_argument("--timeout", type=float, default=60.0, help="Execution timeout in seconds (default: 60)")
     run_parser.add_argument("--nickname", help="Optional nickname for this execution")
     run_parser.add_argument("--nickname-mode", choices=["unique", "replace"], default="unique", help="Nickname conflict policy")
@@ -441,23 +441,23 @@ def create_parser() -> argparse.ArgumentParser:
     assets_parser.add_argument("files", nargs="+", type=Path, help="Asset files to upload")
 
     # === execute command ===
-    execute_parser = subparsers.add_parser("exec", help="Execute a .wls file in an existing execution")
+    execute_parser = subparsers.add_parser("exec", help="Execute a Wolfram Language file in an existing execution")
     execute_parser.add_argument("execution_id", help="Execution ID")
-    execute_parser.add_argument("file_path", help="Path to .wls file within execution")
+    execute_parser.add_argument("file_path", help="Path to Wolfram Language file within execution")
     execute_parser.add_argument("--timeout", type=float, default=60.0, help="Execution timeout in seconds (default: 60)")
 
     # === sync commands ===
     sync_parser = subparsers.add_parser("sync", help="Bidirectional folder sync (newest wins)")
     sync_parser.add_argument("local_dir", type=Path, help="Local directory to sync")
     sync_parser.add_argument("execution_id", help="Execution ID")
-    sync_parser.add_argument("--execute", metavar="FILE", help="Execute this .wls file after syncing")
+    sync_parser.add_argument("--execute", metavar="FILE", help="Execute this Wolfram file after syncing")
     sync_parser.add_argument("--timeout", type=float, default=60.0, help="Execution timeout in seconds (default: 60)")
 
     upload_parser = subparsers.add_parser("upload", help="Upload local folder to server")
     upload_parser.add_argument("local_dir", type=Path, help="Local directory to upload")
     upload_parser.add_argument("execution_id", help="Execution ID")
     upload_parser.add_argument("--delete", action="store_true", help="Delete remote files not in local")
-    upload_parser.add_argument("--execute", metavar="FILE", help="Execute this .wls file after uploading")
+    upload_parser.add_argument("--execute", metavar="FILE", help="Execute this Wolfram file after uploading")
     upload_parser.add_argument("--timeout", type=float, default=60.0, help="Execution timeout in seconds (default: 60)")
 
     download_parser = subparsers.add_parser("download", help="Download server folder to local")

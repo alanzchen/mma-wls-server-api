@@ -1,6 +1,6 @@
 ## WolframScript Web Runner
 
-This service exposes a small FastAPI server that accepts an uploaded WolframScript (`.wls`) file, executes it with the `wolframscript` CLI, and returns the captured standard output, standard error, and exit code.
+This service exposes a small FastAPI server that accepts uploaded Wolfram Language files (`.wls`, `.wl`, `.m`, `.nb`, etc.), executes them with the `wolframscript` CLI, and returns the captured standard output, standard error, and exit code.
 
 ### Prerequisites
 - `wolframscript` must be installed on the host and available on the `PATH`.
@@ -98,7 +98,9 @@ curl -X POST \
   "http://127.0.0.1:8000/executions/<execution_id>/execute"
 ```
 
-Executes a `.wls` file that exists within the execution directory. The execution results are stored in the metadata's `execution_history` and `last_execution` fields.
+Executes a Wolfram Language file that exists within the execution directory. The execution results are stored in the metadata's `execution_history` and `last_execution` fields.
+
+**Supported file types:** `.wls`, `.wl`, `.m`, `.nb`, `.cdf`, `.mx`
 
 ### Comprehensive CLI Tool
 

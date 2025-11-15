@@ -1,6 +1,6 @@
 # Using the WolframScript Runner API with an LLM
 
-This document describes how to guide a language model agent to run WolframScript files safely through the WolframScript Runner API.
+This document describes how to guide a language model agent to run Wolfram Language files safely through the WolframScript Runner API.
 
 ## Base Configuration
 
@@ -20,7 +20,7 @@ Ensure the LLM has explicit instructions about these values before attempting an
 - **Headers:**
   - `X-Runner-Password: <<INSERT_API_PASSWORD>>`
 - **Multipart form fields:**
-  - `file`: the `.wls` WolframScript to execute (required)
+  - `file`: Wolfram Language file to execute (required) - supports `.wls`, `.wl`, `.m`, `.nb`, `.cdf`, `.mx`
   - `nickname`: user-friendly identifier (optional)
   - `nickname_mode`: `unique` (default) or `replace` (optional)
   - `assets`: repeatable field for supporting files (optional)
@@ -96,7 +96,7 @@ Ensure the LLM has explicit instructions about these values before attempting an
 - **Path:** `/executions/{execution_id}/execute`
 - **Headers:** `X-Runner-Password`
 - **Form fields:**
-  - `file_path`: path to `.wls` file within execution directory (required)
+  - `file_path`: path to Wolfram Language file within execution directory (required) - supports `.wls`, `.wl`, `.m`, `.nb`, `.cdf`, `.mx`
   - `timeout`: execution timeout in seconds (default: 60, max: 600)
 - **Response:** JSON with `execution_id`, `file_path`, `returncode`, `elapsed_seconds`, `stdout`, `stderr`, `artifacts`
 
@@ -214,7 +214,8 @@ wls download ./my-project abc123
 
 ## Safety & Policy Reminders for LLMs
 
-- Only execute WolframScripts from trusted sources.
+- Only execute Wolfram Language files from trusted sources.
+- Supported file types: `.wls`, `.wl`, `.m`, `.nb`, `.cdf`, `.mx`
 - Do not attempt to bypass the sandbox or change system configuration.
 - Respect the timeout and nickname policies returned by the API.
 - Handle non-200 responses explicitly; report errors back to the user.

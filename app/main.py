@@ -98,6 +98,9 @@ CLEANUP_INTERVAL_SECONDS = _read_float_env("WLS_CLEANUP_INTERVAL_SECONDS") or 30
 NICKNAME_MAX_LENGTH = 128
 ALLOWED_NICKNAME_MODES = {"unique", "replace"}
 
+# Allowed Wolfram Language file extensions
+WOLFRAM_FILE_EXTENSIONS = {".wls", ".wl", ".m", ".nb", ".cdf", ".mx"}
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -120,7 +123,7 @@ app = FastAPI(
     title="WolframScript Runner",
     version="0.3.0",
     description=(
-        "Upload a WolframScript (.wls) file, execute it via the wolframscript CLI, "
+        "Upload a Wolfram Language file (.wls, .wl, .m, .nb, etc.), execute it via the wolframscript CLI, "
         "and manage the produced artifacts."
     ),
     lifespan=_lifespan,
@@ -416,7 +419,7 @@ async def list_executions(_: None = Depends(_require_password)) -> dict[str, Any
 
 @app.post("/run")
 async def run_wolframscript(
-    file: UploadFile = File(..., description="WolframScript file (.wls) to execute."),
+    file: UploadFile = File(..., description="Wolfram Language file (.wls, .wl, .m, .nb, etc.) to execute."),
     timeout: float = Query(
         60.0,
         gt=0,
@@ -441,8 +444,12 @@ async def run_wolframscript(
         raise HTTPException(status_code=400, detail="Upload must include a filename.")
 
     script_filename = Path(file.filename).name
-    if not script_filename.lower().endswith(".wls"):
-        raise HTTPException(status_code=400, detail="Only .wls files are supported.")
+    file_ext = Path(script_filename).suffix.lower()
+    if file_ext not in WOLFRAM_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only Wolfram Language files are supported: {', '.join(sorted(WOLFRAM_FILE_EXTENSIONS))}"
+        )
 
     nickname_mode = nickname_mode.strip().lower()
     if nickname_mode not in ALLOWED_NICKNAME_MODES:
@@ -761,7 +768,7 @@ async def delete_execution_file(
 @app.post("/executions/{execution_id}/execute")
 async def execute_file(
     execution_id: str,
-    file_path: str = Form(..., description="Path to the .wls file to execute within the execution directory."),
+    file_path: str = Form(..., description="Path to the Wolfram Language file to execute within the execution directory."),
     timeout: float = Form(
         60.0,
         gt=0,
@@ -770,7 +777,7 @@ async def execute_file(
     ),
     _: None = Depends(_require_password),
 ) -> dict[str, Any]:
-    """Execute a .wls file within an existing execution directory."""
+    """Execute a Wolfram Language file within an existing execution directory."""
     execution_dir = _resolve_execution_dir(execution_id)
 
     # Resolve and validate the script path
@@ -783,8 +790,12 @@ async def execute_file(
     if not script_path.is_file():
         raise HTTPException(status_code=404, detail="Script file not found.")
 
-    if not script_path.name.lower().endswith(".wls"):
-        raise HTTPException(status_code=400, detail="Only .wls files can be executed.")
+    file_ext = script_path.suffix.lower()
+    if file_ext not in WOLFRAM_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only Wolfram Language files can be executed: {', '.join(sorted(WOLFRAM_FILE_EXTENSIONS))}"
+        )
 
     # Validate script content
     script_content = script_path.read_bytes()
