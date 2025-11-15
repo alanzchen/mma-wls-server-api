@@ -131,7 +131,19 @@ Ensure the LLM has explicit instructions about these values before attempting an
 
 ## CLI Tool for LLMs
 
-A comprehensive CLI tool (`wls_cli.py`) is available that wraps all API endpoints. LLMs can use this tool directly via shell commands or reference its implementation.
+A comprehensive CLI tool (`wls`) is available that wraps all API endpoints. LLMs can use this tool directly via shell commands or reference its implementation.
+
+### CLI Installation
+
+**Install from GitHub:**
+```bash
+uv pip install git+https://github.com/alanzchen/mma-wls-server-api.git
+```
+
+**Or use uvx without installing:**
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls <command>
+```
 
 ### CLI Configuration
 

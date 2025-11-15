@@ -102,19 +102,35 @@ Executes a `.wls` file that exists within the execution directory. The execution
 
 ### Comprehensive CLI Tool
 
-A full-featured command-line utility `wls_cli.py` (aliased as `wls`) provides access to all API operations:
+A full-featured command-line utility `wls` provides access to all API operations.
 
 #### Installation
+
+**Install from GitHub with uv (recommended):**
 ```bash
-# Install the CLI dependencies using uv
-uv sync --group cli
+# Install the package and CLI tool
+uv pip install git+https://github.com/alanzchen/mma-wls-server-api.git
 
-# Or install dependencies directly with pip
-pip install requests python-dotenv
+# Or use uvx to run without installing
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls --help
+```
 
-# Make the CLI easily accessible
-ln -s "$(pwd)/wls_cli.py" ~/bin/wls
-# or add to PATH
+**Install locally for development:**
+```bash
+# Clone the repository
+git clone https://github.com/alanzchen/mma-wls-server-api.git
+cd mma-wls-server-api
+
+# Install in development mode
+uv pip install -e .
+
+# The 'wls' command is now available
+wls --help
+```
+
+**Install with pip:**
+```bash
+pip install git+https://github.com/alanzchen/mma-wls-server-api.git
 ```
 
 #### Configuration
@@ -199,79 +215,6 @@ wls help run
 **Help:**
 - `wls help` - Show general help
 - `wls help <command>` - Show help for specific command
-
-### Legacy Folder Sync CLI (wls_sync.py)
-
-The original folder sync utility `wls_sync.py` is still available for backward compatibility:
-
-#### Installation
-```bash
-# Install the CLI dependencies using uv
-uv sync --group cli
-
-# Or install dependencies directly with pip
-pip install requests python-dotenv
-```
-
-#### Configuration
-
-The CLI can be configured in three ways (in order of priority):
-
-1. **Command-line arguments** (highest priority)
-2. **Environment variables**
-3. **.env file** (lowest priority)
-
-Create a `.env` file in your project directory:
-```bash
-# Copy the example file
-cp .env.example .env
-
-# Edit with your values
-WLS_SERVER_URL=http://localhost:8000
-WLS_API_PASSWORD=your-secret-password
-```
-
-Configuration variables:
-- `WLS_SERVER_URL`: Server base URL (default: `http://localhost:8000`)
-- `WLS_API_PASSWORD`: API password for authentication (default: none)
-
-#### Usage
-
-**Upload Mode** (local → remote):
-```bash
-./wls_sync.py upload ./my-project <execution_id>
-```
-
-**Download Mode** (remote → local):
-```bash
-./wls_sync.py download ./my-project <execution_id>
-```
-
-**Bidirectional Sync** (newest file wins):
-```bash
-./wls_sync.py sync ./my-project <execution_id>
-```
-
-**Upload and Execute**:
-```bash
-./wls_sync.py upload ./my-project <execution_id> --execute main.wls
-```
-
-**Full Options**:
-```bash
-./wls_sync.py sync ./my-project <execution_id> \
-  --url http://localhost:8000 \
-  --password mypassword \
-  --execute script.wls \
-  --timeout 120 \
-  --verbose
-```
-
-**Command-line Options**:
-- `--delete`: Delete files in destination that don't exist in source (upload/download modes only)
-- `--execute FILE`: Execute a `.wls` file after syncing to server
-- `--timeout SECONDS`: Execution timeout (default: 60)
-- `-v, --verbose`: Show detailed progress
 
 ### Delete an Execution
 ```bash

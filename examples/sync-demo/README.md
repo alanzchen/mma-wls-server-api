@@ -9,18 +9,24 @@ This example demonstrates how to use the bidirectional folder sync feature.
 
 ## Setup
 
-### 1. Install CLI dependencies
+### 1. Install the CLI tool
 
+**Install from GitHub:**
 ```bash
+# From the repository root
 cd ../..
-uv sync --group cli
-# or: pip install requests python-dotenv
 
-# Optionally create a symlink for easier access
-ln -s "$(pwd)/wls_cli.py" ~/bin/wls
+# Install the package with the CLI tool
+uv pip install -e .
+
+# The 'wls' command is now available
+wls --help
 ```
 
-**Note:** You can use either `wls_cli.py` (comprehensive tool) or `wls_sync.py` (legacy folder sync tool). The examples below use the new `wls` CLI.
+**Or use uvx without installing:**
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls --help
+```
 
 ### 2. Configure the CLI (optional)
 
