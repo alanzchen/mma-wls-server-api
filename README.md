@@ -100,9 +100,109 @@ curl -X POST \
 
 Executes a `.wls` file that exists within the execution directory. The execution results are stored in the metadata's `execution_history` and `last_execution` fields.
 
-### Bidirectional Folder Sync CLI
+### Comprehensive CLI Tool
 
-A command-line utility `wls_sync.py` is provided for syncing entire folders with execution directories:
+A full-featured command-line utility `wls_cli.py` (aliased as `wls`) provides access to all API operations:
+
+#### Installation
+```bash
+# Install the CLI dependencies using uv
+uv sync --group cli
+
+# Or install dependencies directly with pip
+pip install requests python-dotenv
+
+# Make the CLI easily accessible
+ln -s "$(pwd)/wls_cli.py" ~/bin/wls
+# or add to PATH
+```
+
+#### Configuration
+
+The CLI can be configured in three ways (in order of priority):
+
+1. **Command-line arguments** (highest priority)
+2. **Environment variables**
+3. **.env file** (lowest priority)
+
+Create a `.env` file in your project directory:
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your values
+WLS_SERVER_URL=http://localhost:8000
+WLS_API_PASSWORD=your-secret-password
+```
+
+Configuration variables:
+- `WLS_SERVER_URL`: Server base URL (default: `http://localhost:8000`)
+- `WLS_API_PASSWORD`: API password for authentication (default: none)
+
+#### Quick Start
+
+```bash
+# Execute a script
+wls run script.wls --asset data.csv
+
+# List all executions
+wls list
+
+# Get execution details
+wls info <execution_id>
+
+# List files in execution
+wls files <execution_id>
+
+# Download a file
+wls get <execution_id> output/result.txt
+
+# Upload a file
+wls put <execution_id> newdata.csv data/newdata.csv
+
+# Execute a file already in the execution
+wls exec <execution_id> main.wls
+
+# Sync entire folder
+wls sync ./my-project <execution_id>
+
+# Get help
+wls help
+wls help run
+```
+
+#### All Available Commands
+
+**Execution Management:**
+- `wls run <script.wls>` - Upload and execute a script
+- `wls list` - List all executions
+- `wls info <execution_id>` - Get execution metadata
+- `wls delete <execution_id>` - Delete an execution
+
+**File Operations:**
+- `wls files <execution_id>` - List files in execution
+- `wls get <execution_id> <file_path>` - Download a file
+- `wls put <execution_id> <local> [remote]` - Upload a file
+- `wls rm <execution_id> <file_path>` - Delete a file
+
+**Asset Operations:**
+- `wls assets <execution_id> <files...>` - Upload additional assets
+
+**Execution Operations:**
+- `wls exec <execution_id> <script.wls>` - Execute file in execution
+
+**Folder Sync:**
+- `wls sync <dir> <execution_id>` - Bidirectional sync
+- `wls upload <dir> <execution_id>` - Upload folder
+- `wls download <dir> <execution_id>` - Download folder
+
+**Help:**
+- `wls help` - Show general help
+- `wls help <command>` - Show help for specific command
+
+### Legacy Folder Sync CLI (wls_sync.py)
+
+The original folder sync utility `wls_sync.py` is still available for backward compatibility:
 
 #### Installation
 ```bash

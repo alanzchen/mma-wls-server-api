@@ -15,7 +15,12 @@ This example demonstrates how to use the bidirectional folder sync feature.
 cd ../..
 uv sync --group cli
 # or: pip install requests python-dotenv
+
+# Optionally create a symlink for easier access
+ln -s "$(pwd)/wls_cli.py" ~/bin/wls
 ```
+
+**Note:** You can use either `wls_cli.py` (comprehensive tool) or `wls_sync.py` (legacy folder sync tool). The examples below use the new `wls` CLI.
 
 ### 2. Configure the CLI (optional)
 
@@ -38,55 +43,76 @@ WLS_API_PASSWORD=your-password-if-needed
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 2. Create an execution directory
+### 2. Create an execution and run script
 
-You have two options:
+**Option A: Using the CLI (recommended)**
+```bash
+# Run the script directly
+wls run main.wls --nickname sync-demo --nickname-mode replace --asset data/input.txt
 
-**Option A: Create via initial run**
+# Save the execution_id from output
+```
+
+**Option B: Using cURL**
 ```bash
 curl -X POST \
-  -F "file=@examples/sync-demo/main.wls" \
+  -F "file=@main.wls" \
   -F "nickname=sync-demo" \
   -F "nickname_mode=replace" \
   "http://127.0.0.1:8000/run?timeout=60"
 ```
 
-Save the `execution_id` from the response.
+### 3. Work with execution files
 
-**Option B: Use the sync CLI to upload first**
-
-Get an execution ID from a previous run or create a new one, then sync:
-
+**List files:**
 ```bash
-../../wls_sync.py upload . <execution_id> --verbose
+wls files <execution_id>
 ```
 
-### 3. Sync and execute
-
-**Upload local changes and execute:**
+**Download a specific file:**
 ```bash
-../../wls_sync.py upload . <execution_id> --execute main.wls --verbose
+wls get <execution_id> output/result.txt
+```
+
+**Upload a new file:**
+```bash
+wls put <execution_id> data/input.txt
+```
+
+**Execute the script again:**
+```bash
+wls exec <execution_id> main.wls
+```
+
+### 4. Folder synchronization
+
+**Upload entire folder and execute:**
+```bash
+wls upload . <execution_id> --execute main.wls --verbose
 ```
 
 **Download outputs after execution:**
 ```bash
-../../wls_sync.py download . <execution_id> --verbose
+wls download . <execution_id> --verbose
 ```
 
 You should now see an `output/result.txt` file in your local directory!
 
-**Bidirectional sync:**
+**Bidirectional sync (newest wins):**
 ```bash
-../../wls_sync.py sync . <execution_id> --verbose
+wls sync . <execution_id> --verbose
 ```
 
-### 4. Modify and re-sync
+### 5. Iterative development
 
-Try modifying `data/input.txt` locally, then run:
+Try modifying `data/input.txt` locally, then:
 
 ```bash
-../../wls_sync.py upload . <execution_id> --execute main.wls --verbose
-../../wls_sync.py download . <execution_id> --verbose
+# Sync changes and execute
+wls sync . <execution_id> --execute main.wls --verbose
+
+# Download results
+wls download . <execution_id>
 ```
 
 The new data will be uploaded, the script will run with the new data, and outputs will be downloaded.
