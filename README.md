@@ -109,9 +109,31 @@ A command-line utility `wls_sync.py` is provided for syncing entire folders with
 # Install the CLI dependencies using uv
 uv sync --group cli
 
-# Or install requests directly with pip
-pip install requests
+# Or install dependencies directly with pip
+pip install requests python-dotenv
 ```
+
+#### Configuration
+
+The CLI can be configured in three ways (in order of priority):
+
+1. **Command-line arguments** (highest priority)
+2. **Environment variables**
+3. **.env file** (lowest priority)
+
+Create a `.env` file in your project directory:
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your values
+WLS_SERVER_URL=http://localhost:8000
+WLS_API_PASSWORD=your-secret-password
+```
+
+Configuration variables:
+- `WLS_SERVER_URL`: Server base URL (default: `http://localhost:8000`)
+- `WLS_API_PASSWORD`: API password for authentication (default: none)
 
 #### Usage
 
@@ -145,11 +167,7 @@ pip install requests
   --verbose
 ```
 
-The CLI supports environment variables:
-- `WLS_SERVER_URL`: Server base URL (default: `http://localhost:8000`)
-- `WLS_API_PASSWORD`: API password for authentication
-
-**Options**:
+**Command-line Options**:
 - `--delete`: Delete files in destination that don't exist in source (upload/download modes only)
 - `--execute FILE`: Execute a `.wls` file after syncing to server
 - `--timeout SECONDS`: Execution timeout (default: 60)

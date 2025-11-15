@@ -24,6 +24,11 @@ except ImportError:
     print("Error: 'requests' library is required. Install it with: pip install requests")
     sys.exit(1)
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None  # type: ignore
+
 
 @dataclass
 class FileEntry:
@@ -275,6 +280,10 @@ class SyncClient:
 
 def main() -> None:
     """Main CLI entry point."""
+    # Load environment variables from .env file if available
+    if load_dotenv is not None:
+        load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="Sync folders with WolframScript execution directories.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

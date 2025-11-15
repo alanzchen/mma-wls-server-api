@@ -7,12 +7,34 @@ This example demonstrates how to use the bidirectional folder sync feature.
 - `main.wls` - Main WolframScript that lists files and processes data
 - `data/input.txt` - Sample input data file
 
+## Setup
+
+### 1. Install CLI dependencies
+
+```bash
+cd ../..
+uv sync --group cli
+# or: pip install requests python-dotenv
+```
+
+### 2. Configure the CLI (optional)
+
+Create a `.env` file in the project root:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your server settings:
+```
+WLS_SERVER_URL=http://localhost:8000
+WLS_API_PASSWORD=your-password-if-needed
+```
+
 ## Usage
 
 ### 1. Start the server
 
 ```bash
-cd ../..
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
