@@ -74,13 +74,11 @@ class WLSClient:
         """Upload and execute a WolframScript file."""
         self.log(f"Uploading and executing {script_path}...")
 
-        files = {"file": (script_path.name, script_path.read_bytes())}
-
-        # Add assets if provided
-        assets_list = []
+        # Prepare files for multipart upload. Use a list of tuples to support multiple assets.
+        upload_files = [("file", (script_path.name, script_path.read_bytes()))]
         if assets:
             for asset_path in assets:
-                assets_list.append(("assets", (asset_path.name, asset_path.read_bytes())))
+                upload_files.append(("assets", (asset_path.name, asset_path.read_bytes())))
 
         data = {}
         if nickname:
@@ -89,18 +87,7 @@ class WLSClient:
 
         response = self.session.post(
             self._url(f"/run?timeout={timeout}"),
-            files=files,
-            data=data,
-        )
-
-        # Upload assets separately if provided
-        if assets_list:
-            for field_name, (filename, content) in assets_list:
-                files[field_name] = (filename, content)
-
-        response = self.session.post(
-            self._url(f"/run?timeout={timeout}"),
-            files=files,
+            files=upload_files,
             data=data,
         )
         response.raise_for_status()
