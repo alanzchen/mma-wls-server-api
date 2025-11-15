@@ -61,6 +61,100 @@ The response lists the merged asset inventory and updated artifacts, letting you
 
 Each execution directory stores its own `metadata.json`, ensuring execution history persists across server restarts.
 
+### Folder Sync Operations
+
+#### List All Files in an Execution
+```bash
+curl "http://127.0.0.1:8000/executions/<execution_id>/files"
+```
+
+Returns a list of all files in the execution directory with metadata (path, size, mtime).
+
+#### Upload/Update a Single File
+```bash
+curl -X PUT \
+  -H "X-Runner-Password: change-me" \
+  -F "file=@path/to/local/file.txt" \
+  "http://127.0.0.1:8000/executions/<execution_id>/files/path/in/execution/file.txt"
+```
+
+Uploads or updates a file at the specified path within the execution directory.
+
+#### Delete a File
+```bash
+curl -X DELETE \
+  -H "X-Runner-Password: change-me" \
+  "http://127.0.0.1:8000/executions/<execution_id>/files/path/to/file.txt"
+```
+
+Deletes a specific file from the execution directory.
+
+#### Execute a File
+```bash
+curl -X POST \
+  -H "X-Runner-Password: change-me" \
+  -F "file_path=script.wls" \
+  -F "timeout=60" \
+  "http://127.0.0.1:8000/executions/<execution_id>/execute"
+```
+
+Executes a `.wls` file that exists within the execution directory. The execution results are stored in the metadata's `execution_history` and `last_execution` fields.
+
+### Bidirectional Folder Sync CLI
+
+A command-line utility `wls_sync.py` is provided for syncing entire folders with execution directories:
+
+#### Installation
+```bash
+# Install the CLI dependencies using uv
+uv sync --group cli
+
+# Or install requests directly with pip
+pip install requests
+```
+
+#### Usage
+
+**Upload Mode** (local → remote):
+```bash
+./wls_sync.py upload ./my-project <execution_id>
+```
+
+**Download Mode** (remote → local):
+```bash
+./wls_sync.py download ./my-project <execution_id>
+```
+
+**Bidirectional Sync** (newest file wins):
+```bash
+./wls_sync.py sync ./my-project <execution_id>
+```
+
+**Upload and Execute**:
+```bash
+./wls_sync.py upload ./my-project <execution_id> --execute main.wls
+```
+
+**Full Options**:
+```bash
+./wls_sync.py sync ./my-project <execution_id> \
+  --url http://localhost:8000 \
+  --password mypassword \
+  --execute script.wls \
+  --timeout 120 \
+  --verbose
+```
+
+The CLI supports environment variables:
+- `WLS_SERVER_URL`: Server base URL (default: `http://localhost:8000`)
+- `WLS_API_PASSWORD`: API password for authentication
+
+**Options**:
+- `--delete`: Delete files in destination that don't exist in source (upload/download modes only)
+- `--execute FILE`: Execute a `.wls` file after syncing to server
+- `--timeout SECONDS`: Execution timeout (default: 60)
+- `-v, --verbose`: Show detailed progress
+
 ### Delete an Execution
 ```bash
 curl -X DELETE "http://127.0.0.1:8000/executions/<execution_id>"

@@ -1,0 +1,2 @@
+This is sample input data for the folder sync demo.
+You can sync this file to the server and it will be read by main.wls.
