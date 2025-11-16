@@ -157,6 +157,7 @@ The CLI reads configuration from (in order of priority):
 ```bash
 # Execution management
 wls run script.wls --nickname "my-run" --asset data.csv
+wls run script.wls -d /path/to/folder  # Upload folder, execute, download new files
 wls list [--json]
 wls info <execution_id> [--json]
 wls delete <execution_id>
@@ -187,6 +188,12 @@ wls help [command]
 **Execute a script:**
 ```bash
 wls run analysis.wls --asset data.csv --timeout 120
+```
+
+**Execute with folder sync:**
+```bash
+# Upload entire folder, execute script, and download any new files
+wls run script.wls -d ./my-project --timeout 120
 ```
 
 **Iterative development:**

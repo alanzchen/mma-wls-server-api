@@ -163,6 +163,9 @@ Configuration variables:
 # Execute a script
 wls run script.wls --asset data.csv
 
+# Execute with folder sync (upload folder, execute, download new files)
+wls run script.wls -d ./my-project
+
 # List all executions
 wls list
 
@@ -193,6 +196,8 @@ wls help run
 
 **Execution Management:**
 - `wls run <script.wls>` - Upload and execute a script
+  - `--asset <file>` - Upload individual asset files (can be used multiple times)
+  - `-d, --directory <dir>` - Upload entire directory and download new files after execution
 - `wls list` - List all executions
 - `wls info <execution_id>` - Get execution metadata
 - `wls delete <execution_id>` - Delete an execution
