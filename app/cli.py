@@ -70,15 +70,32 @@ class WLSClient:
         nickname: str | None = None,
         nickname_mode: str = "unique",
         assets: list[Path] | None = None,
+        assets_base_dir: Path | None = None,
     ) -> dict[str, Any]:
-        """Upload and execute a WolframScript file."""
+        """Upload and execute a WolframScript file.
+
+        Args:
+            script_path: Path to the main script to execute
+            timeout: Execution timeout in seconds
+            nickname: Optional nickname for the execution
+            nickname_mode: Nickname conflict policy ("unique" or "replace")
+            assets: List of asset files to upload
+            assets_base_dir: Base directory for computing relative paths of assets.
+                           If provided, assets will preserve their directory structure
+                           relative to this base directory.
+        """
         self.log(f"Uploading and executing {script_path}...")
 
         # Prepare files for multipart upload. Use a list of tuples to support multiple assets.
         upload_files = [("file", (script_path.name, script_path.read_bytes()))]
         if assets:
             for asset_path in assets:
-                upload_files.append(("assets", (asset_path.name, asset_path.read_bytes())))
+                # Compute relative path if base directory is provided
+                if assets_base_dir:
+                    rel_path = asset_path.relative_to(assets_base_dir).as_posix()
+                    upload_files.append(("assets", (rel_path, asset_path.read_bytes())))
+                else:
+                    upload_files.append(("assets", (asset_path.name, asset_path.read_bytes())))
 
         data = {}
         if nickname:
@@ -386,6 +403,7 @@ def create_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--nickname", help="Optional nickname for this execution")
     run_parser.add_argument("--nickname-mode", choices=["unique", "replace"], default="unique", help="Nickname conflict policy")
     run_parser.add_argument("--asset", dest="assets", action="append", type=Path, help="Asset file to upload (can be specified multiple times)")
+    run_parser.add_argument("-d", "--directory", type=Path, help="Upload entire directory and download new files after execution")
 
     # === list command ===
     list_parser = subparsers.add_parser("list", help="List all executions")
@@ -490,13 +508,35 @@ def main() -> None:
             if not args.script.exists():
                 print(f"Error: Script file not found: {args.script}", file=sys.stderr)
                 sys.exit(1)
+
+            # Prepare assets list
+            assets_to_upload = args.assets or []
+
+            # If directory sync mode is enabled, collect all files from directory
+            if args.directory:
+                if not args.directory.exists():
+                    print(f"Error: Directory not found: {args.directory}", file=sys.stderr)
+                    sys.exit(1)
+                if not args.directory.is_dir():
+                    print(f"Error: Not a directory: {args.directory}", file=sys.stderr)
+                    sys.exit(1)
+
+                # Add all files from the directory (excluding the main script to avoid duplication)
+                for file_path in args.directory.rglob("*"):
+                    if file_path.is_file() and file_path.resolve() != args.script.resolve():
+                        assets_to_upload.append(file_path)
+
+            # Upload and execute script
             result = client.run_script(
                 args.script,
                 timeout=args.timeout,
                 nickname=args.nickname,
                 nickname_mode=args.nickname_mode,
-                assets=args.assets,
+                assets=assets_to_upload if assets_to_upload else None,
+                assets_base_dir=args.directory if args.directory else None,
             )
+
+            # Print execution results
             print(f"Execution ID: {result['execution_id']}")
             print(f"Return code: {result['returncode']}")
             print(f"Elapsed time: {result['elapsed_seconds']:.2f}s")
@@ -506,6 +546,11 @@ def main() -> None:
             if result.get("stderr"):
                 print("\n--- STDERR ---")
                 print(result["stderr"])
+
+            # Download any new files created during execution (directory sync mode only)
+            if args.directory:
+                print("\nDownloading new files...")
+                client.sync_download(args.directory, result['execution_id'], delete_local=False)
 
         elif args.command == "list":
             result = client.list_executions()
