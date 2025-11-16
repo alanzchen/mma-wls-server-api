@@ -364,3 +364,156 @@ def test_password_required(import_app, monkeypatch):
     )
     assert add_assets_ok.status_code == 200
     assert "assets/added.txt" in add_assets_ok.json()["assets"]
+
+
+def test_run_with_directory_archive(import_app, monkeypatch, tmp_path):
+    """Test that directory archives are extracted correctly."""
+    import zipfile
+
+    client, module, exec_root, _ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file with directory structure
+    zip_path = tmp_path / "test_dir.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("subdir/file1.txt", "content1")
+        zipf.writestr("subdir/file2.txt", "content2")
+        zipf.writestr("file3.txt", "content3")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 200
+    payload = response.json()
+
+    # Check that files were extracted
+    assert "subdir/file1.txt" in payload["assets"]
+    assert "subdir/file2.txt" in payload["assets"]
+    assert "file3.txt" in payload["assets"]
+
+    # Verify artifacts include extracted files
+    artifact_paths = {item["path"] for item in payload["artifacts"]}
+    assert "subdir/file1.txt" in artifact_paths
+    assert "subdir/file2.txt" in artifact_paths
+    assert "file3.txt" in artifact_paths
+
+    # Verify file content
+    execution_id = payload["execution_id"]
+    execution_dir = exec_root / execution_id
+    assert (execution_dir / "subdir" / "file1.txt").read_text() == "content1"
+    assert (execution_dir / "subdir" / "file2.txt").read_text() == "content2"
+    assert (execution_dir / "file3.txt").read_text() == "content3"
+
+
+def test_run_with_invalid_zip_archive(import_app, monkeypatch):
+    """Test that invalid zip archives are rejected with 400."""
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Upload a non-zip file as directory_archive
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", b"not a valid zip file", "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Invalid or corrupted zip archive" in response.json()["detail"]
+
+
+def test_run_with_path_traversal_in_archive(import_app, monkeypatch, tmp_path):
+    """Test that path traversal attempts in archives are blocked."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file with path traversal attempts (both file and directory)
+    zip_path = tmp_path / "malicious.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("../escape.txt", "malicious content")
+        zipf.writestr("../../another_escape.txt", "more malicious")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Invalid path in archive" in response.json()["detail"]
+
+
+def test_run_with_directory_traversal_in_archive(import_app, monkeypatch, tmp_path):
+    """Test that directory path traversal attempts are blocked."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file with directory traversal in directory entries
+    zip_path = tmp_path / "dir_traversal.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Add a directory entry with path traversal
+        info = zipfile.ZipInfo("../../malicious_dir/")
+        info.external_attr = 0o040755 << 16  # Mark as directory
+        zipf.writestr(info, "")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Invalid path in archive" in response.json()["detail"]
+
+
+def test_run_with_both_archive_and_assets_rejected(import_app, monkeypatch, tmp_path):
+    """Test that providing both directory_archive and assets is rejected."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a valid zip file
+    zip_path = tmp_path / "test.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("file1.txt", "content1")
+
+    # Try to send both directory_archive and assets
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+        ("assets", ("asset.txt", b"asset content", "text/plain")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Cannot provide both directory_archive and assets" in response.json()["detail"]
+
+
+def test_run_with_archive_containing_script_name(import_app, monkeypatch, tmp_path):
+    """Test that archive cannot contain the script file to prevent override."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file that contains a file with the same name as the script
+    zip_path = tmp_path / "malicious.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("main.wls", "malicious code")
+        zipf.writestr("other.txt", "normal content")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Archive cannot contain the script file" in response.json()["detail"]
