@@ -267,25 +267,21 @@ async def _extract_directory_archive(execution_dir: Path, archive_upload: Upload
     if not archive_upload.filename:
         raise HTTPException(status_code=400, detail="Directory archive must include a filename.")
 
+    temp_zip_path = None
     try:
-        # Read the zip file content
-        archive_bytes = await archive_upload.read()
-
-        # Create a temporary file to store the zip
+        # Stream the content to a temporary file to avoid loading all in memory
         with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_file:
-            temp_file.write(archive_bytes)
             temp_zip_path = Path(temp_file.name)
+            while chunk := await archive_upload.read(8192):  # Read in 8KB chunks
+                await run_in_threadpool(temp_file.write, chunk)
 
+        # Extract the zip file
+        extracted_files = []
         try:
-            # Extract the zip file
-            extracted_files = []
             with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
-                # Validate all paths before extraction
+                # Validate all paths before extraction and collect filenames
                 for zip_info in zipf.infolist():
-                    if zip_info.is_dir():
-                        continue
-
-                    # Ensure the file path is safe (no path traversal)
+                    # Validate both files and directories for path traversal
                     target_path = (execution_dir / zip_info.filename).resolve()
                     try:
                         target_path.relative_to(execution_dir)
@@ -295,18 +291,28 @@ async def _extract_directory_archive(execution_dir: Path, archive_upload: Upload
                             detail=f"Invalid path in archive: {zip_info.filename}"
                         ) from exc
 
-                # Extract all files
-                zipf.extractall(execution_dir)
-
-                # Collect extracted file paths
-                for zip_info in zipf.infolist():
+                    # Collect only file paths (not directories)
                     if not zip_info.is_dir():
                         extracted_files.append(zip_info.filename)
 
+                # Extract all files after validation
+                zipf.extractall(execution_dir)
+
             return sorted(extracted_files)
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or corrupted zip archive"
+            ) from exc
+        except zipfile.LargeZipFile as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Zip archive is too large"
+            ) from exc
         finally:
             # Clean up temporary zip file
-            temp_zip_path.unlink()
+            if temp_zip_path and temp_zip_path.exists():
+                temp_zip_path.unlink()
     finally:
         await archive_upload.close()
 

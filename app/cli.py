@@ -568,9 +568,9 @@ def main() -> None:
                 )
             finally:
                 # Clean up temporary zip file
-                if temp_zip_file and directory_zip_path:
+                if temp_zip_file:
                     try:
-                        directory_zip_path.unlink()
+                        Path(temp_zip_file.name).unlink()
                     except Exception:
                         pass
 

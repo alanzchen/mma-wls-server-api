@@ -406,3 +406,67 @@ def test_run_with_directory_archive(import_app, monkeypatch, tmp_path):
     assert (execution_dir / "subdir" / "file1.txt").read_text() == "content1"
     assert (execution_dir / "subdir" / "file2.txt").read_text() == "content2"
     assert (execution_dir / "file3.txt").read_text() == "content3"
+
+
+def test_run_with_invalid_zip_archive(import_app, monkeypatch):
+    """Test that invalid zip archives are rejected with 400."""
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Upload a non-zip file as directory_archive
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", b"not a valid zip file", "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Invalid or corrupted zip archive" in response.json()["detail"]
+
+
+def test_run_with_path_traversal_in_archive(import_app, monkeypatch, tmp_path):
+    """Test that path traversal attempts in archives are blocked."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file with path traversal attempts (both file and directory)
+    zip_path = tmp_path / "malicious.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("../escape.txt", "malicious content")
+        zipf.writestr("../../another_escape.txt", "more malicious")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Invalid path in archive" in response.json()["detail"]
+
+
+def test_run_with_directory_traversal_in_archive(import_app, monkeypatch, tmp_path):
+    """Test that directory path traversal attempts are blocked."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file with directory traversal in directory entries
+    zip_path = tmp_path / "dir_traversal.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Add a directory entry with path traversal
+        info = zipfile.ZipInfo("../../malicious_dir/")
+        info.external_attr = 0o040755 << 16  # Mark as directory
+        zipf.writestr(info, "")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Invalid path in archive" in response.json()["detail"]
