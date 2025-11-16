@@ -294,10 +294,13 @@ async def _extract_directory_archive(
                     ) from exc
 
                 # Prevent archive from overwriting the validated script file
-                if zip_info.filename == script_filename or zip_info.filename.endswith(f"/{script_filename}"):
+                # Prevent archive from overwriting the validated script file or creating a directory with the same name.
+                # A member path like "foo/" is a directory, so we normalize by removing the trailing slash.
+                normalized_filename = zip_info.filename.rstrip('/')
+                if normalized_filename == script_filename or normalized_filename.endswith(f"/{script_filename}"):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Archive cannot contain the script file: {script_filename}"
+                        detail=f"Archive cannot contain a file or directory that conflicts with the script file: {script_filename}"
                     )
 
                 # Collect only file paths (not directories)
