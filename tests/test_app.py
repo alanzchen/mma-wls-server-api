@@ -470,3 +470,50 @@ def test_run_with_directory_traversal_in_archive(import_app, monkeypatch, tmp_pa
     response = client.post("/run", files=files)
     assert response.status_code == 400
     assert "Invalid path in archive" in response.json()["detail"]
+
+
+def test_run_with_both_archive_and_assets_rejected(import_app, monkeypatch, tmp_path):
+    """Test that providing both directory_archive and assets is rejected."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a valid zip file
+    zip_path = tmp_path / "test.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("file1.txt", "content1")
+
+    # Try to send both directory_archive and assets
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+        ("assets", ("asset.txt", b"asset content", "text/plain")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Cannot provide both directory_archive and assets" in response.json()["detail"]
+
+
+def test_run_with_archive_containing_script_name(import_app, monkeypatch, tmp_path):
+    """Test that archive cannot contain the script file to prevent override."""
+    import zipfile
+
+    client, module, *_ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file that contains a file with the same name as the script
+    zip_path = tmp_path / "malicious.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("main.wls", "malicious code")
+        zipf.writestr("other.txt", "normal content")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 400
+    assert "Archive cannot contain the script file" in response.json()["detail"]

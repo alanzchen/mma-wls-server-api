@@ -571,7 +571,7 @@ def main() -> None:
                 if temp_zip_file:
                     try:
                         Path(temp_zip_file.name).unlink()
-                    except Exception:
+                    except OSError:
                         pass
 
             # Print execution results

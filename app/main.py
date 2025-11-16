@@ -254,12 +254,15 @@ async def _store_assets(execution_dir: Path, uploads: list[UploadFile]) -> list[
     return sorted(saved)
 
 
-async def _extract_directory_archive(execution_dir: Path, archive_upload: UploadFile) -> list[str]:
+async def _extract_directory_archive(
+    execution_dir: Path, archive_upload: UploadFile, script_filename: str
+) -> list[str]:
     """Extract a directory archive into the execution directory.
 
     Args:
         execution_dir: The execution directory to extract files into
         archive_upload: The uploaded zip file
+        script_filename: The name of the script file to protect from overwriting
 
     Returns:
         List of extracted file paths (relative to execution_dir)
@@ -277,43 +280,48 @@ async def _extract_directory_archive(execution_dir: Path, archive_upload: Upload
 
         # Extract the zip file
         extracted_files = []
-        try:
-            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
-                # Validate all paths before extraction and collect filenames
-                for zip_info in zipf.infolist():
-                    # Validate both files and directories for path traversal
-                    target_path = (execution_dir / zip_info.filename).resolve()
-                    try:
-                        target_path.relative_to(execution_dir)
-                    except ValueError as exc:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Invalid path in archive: {zip_info.filename}"
-                        ) from exc
+        with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
+            # Validate all paths before extraction and collect filenames
+            for zip_info in zipf.infolist():
+                # Validate both files and directories for path traversal
+                target_path = (execution_dir / zip_info.filename).resolve()
+                try:
+                    target_path.relative_to(execution_dir)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid path in archive: {zip_info.filename}"
+                    ) from exc
 
-                    # Collect only file paths (not directories)
-                    if not zip_info.is_dir():
-                        extracted_files.append(zip_info.filename)
+                # Prevent archive from overwriting the validated script file
+                if zip_info.filename == script_filename or zip_info.filename.endswith(f"/{script_filename}"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Archive cannot contain the script file: {script_filename}"
+                    )
 
-                # Extract all files after validation
-                zipf.extractall(execution_dir)
+                # Collect only file paths (not directories)
+                if not zip_info.is_dir():
+                    extracted_files.append(zip_info.filename)
 
-            return sorted(extracted_files)
-        except zipfile.BadZipFile as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or corrupted zip archive"
-            ) from exc
-        except zipfile.LargeZipFile as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="Zip archive is too large"
-            ) from exc
-        finally:
-            # Clean up temporary zip file
-            if temp_zip_path and temp_zip_path.exists():
-                temp_zip_path.unlink()
+            # Extract all files after validation
+            zipf.extractall(execution_dir)
+
+        return sorted(extracted_files)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or corrupted zip archive"
+        ) from exc
+    except zipfile.LargeZipFile as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Zip archive is too large"
+        ) from exc
     finally:
+        # Clean up temporary zip file
+        if temp_zip_path and temp_zip_path.exists():
+            temp_zip_path.unlink()
         await archive_upload.close()
 
 
@@ -550,6 +558,13 @@ async def run_wolframscript(
     execution_dir = (EXECUTIONS_ROOT / execution_id).resolve()
     execution_dir.mkdir(parents=True, exist_ok=False)
 
+    # Validate mutually exclusive parameters
+    if directory_archive and assets:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot provide both directory_archive and assets. Use one or the other."
+        )
+
     script_path = execution_dir / script_filename
     script_path.write_bytes(content)
 
@@ -557,7 +572,7 @@ async def run_wolframscript(
     saved_assets: list[str] = []
     if directory_archive:
         # Extract directory archive
-        saved_assets = await _extract_directory_archive(execution_dir, directory_archive)
+        saved_assets = await _extract_directory_archive(execution_dir, directory_archive, script_filename)
     elif assets:
         # Store individual assets
         saved_assets = await _store_assets(execution_dir, assets)
