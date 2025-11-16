@@ -364,3 +364,45 @@ def test_password_required(import_app, monkeypatch):
     )
     assert add_assets_ok.status_code == 200
     assert "assets/added.txt" in add_assets_ok.json()["assets"]
+
+
+def test_run_with_directory_archive(import_app, monkeypatch, tmp_path):
+    """Test that directory archives are extracted correctly."""
+    import zipfile
+
+    client, module, exec_root, _ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    # Create a zip file with directory structure
+    zip_path = tmp_path / "test_dir.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("subdir/file1.txt", "content1")
+        zipf.writestr("subdir/file2.txt", "content2")
+        zipf.writestr("file3.txt", "content3")
+
+    files = [
+        ("file", ("main.wls", b"Print[\"test\"]", "application/plain")),
+        ("directory_archive", ("directory.zip", zip_path.read_bytes(), "application/zip")),
+    ]
+
+    response = client.post("/run", files=files)
+    assert response.status_code == 200
+    payload = response.json()
+
+    # Check that files were extracted
+    assert "subdir/file1.txt" in payload["assets"]
+    assert "subdir/file2.txt" in payload["assets"]
+    assert "file3.txt" in payload["assets"]
+
+    # Verify artifacts include extracted files
+    artifact_paths = {item["path"] for item in payload["artifacts"]}
+    assert "subdir/file1.txt" in artifact_paths
+    assert "subdir/file2.txt" in artifact_paths
+    assert "file3.txt" in artifact_paths
+
+    # Verify file content
+    execution_id = payload["execution_id"]
+    execution_dir = exec_root / execution_id
+    assert (execution_dir / "subdir" / "file1.txt").read_text() == "content1"
+    assert (execution_dir / "subdir" / "file2.txt").read_text() == "content2"
+    assert (execution_dir / "file3.txt").read_text() == "content3"

@@ -12,6 +12,8 @@ import argparse
 import json
 import os
 import sys
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -71,6 +73,7 @@ class WLSClient:
         nickname_mode: str = "unique",
         assets: list[Path] | None = None,
         assets_base_dir: Path | None = None,
+        directory_zip_path: Path | None = None,
     ) -> dict[str, Any]:
         """Upload and execute a WolframScript file.
 
@@ -83,12 +86,20 @@ class WLSClient:
             assets_base_dir: Base directory for computing relative paths of assets.
                            If provided, assets will preserve their directory structure
                            relative to this base directory.
+            directory_zip_path: Path to a zip file containing the entire directory.
+                              If provided, the server will extract it before execution.
         """
         self.log(f"Uploading and executing {script_path}...")
 
         # Prepare files for multipart upload. Use a list of tuples to support multiple assets.
         upload_files = [("file", (script_path.name, script_path.read_bytes()))]
-        if assets:
+
+        # Handle directory zip file
+        if directory_zip_path:
+            self.log(f"Uploading directory archive: {directory_zip_path}")
+            upload_files.append(("directory_archive", ("directory.zip", directory_zip_path.read_bytes())))
+        elif assets:
+            # Handle individual assets
             for asset_path in assets:
                 # Compute relative path if base directory is provided
                 if assets_base_dir:
@@ -509,11 +520,18 @@ def main() -> None:
                 print(f"Error: Script file not found: {args.script}", file=sys.stderr)
                 sys.exit(1)
 
-            # Prepare assets list
-            assets_to_upload = args.assets or []
+            # Check for mutually exclusive options
+            if args.directory and args.assets:
+                print("Error: Cannot use both -d/--directory and --asset options together.", file=sys.stderr)
+                print("Use -d for directory sync or --asset for individual files, but not both.", file=sys.stderr)
+                sys.exit(1)
 
-            # If directory sync mode is enabled, collect all files from directory
+            # Prepare for directory or asset upload
+            directory_zip_path = None
+            temp_zip_file = None
+
             if args.directory:
+                # Directory mode: create a zip file
                 if not args.directory.exists():
                     print(f"Error: Directory not found: {args.directory}", file=sys.stderr)
                     sys.exit(1)
@@ -521,20 +539,40 @@ def main() -> None:
                     print(f"Error: Not a directory: {args.directory}", file=sys.stderr)
                     sys.exit(1)
 
-                # Add all files from the directory (excluding the main script to avoid duplication)
-                for file_path in args.directory.rglob("*"):
-                    if file_path.is_file() and file_path.resolve() != args.script.resolve():
-                        assets_to_upload.append(file_path)
+                # Create a temporary zip file
+                print(f"Creating archive of directory: {args.directory}")
+                temp_zip_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.zip', delete=False)
+                try:
+                    with zipfile.ZipFile(temp_zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for file_path in args.directory.rglob("*"):
+                            if file_path.is_file():
+                                # Store with relative path to preserve directory structure
+                                arcname = file_path.relative_to(args.directory)
+                                zipf.write(file_path, arcname)
+                                if client.verbose:
+                                    print(f"  Added to archive: {arcname}")
+                    directory_zip_path = Path(temp_zip_file.name)
+                    print(f"Archive created: {directory_zip_path.stat().st_size} bytes")
+                finally:
+                    temp_zip_file.close()
 
             # Upload and execute script
-            result = client.run_script(
-                args.script,
-                timeout=args.timeout,
-                nickname=args.nickname,
-                nickname_mode=args.nickname_mode,
-                assets=assets_to_upload if assets_to_upload else None,
-                assets_base_dir=args.directory if args.directory else None,
-            )
+            try:
+                result = client.run_script(
+                    args.script,
+                    timeout=args.timeout,
+                    nickname=args.nickname,
+                    nickname_mode=args.nickname_mode,
+                    assets=args.assets,
+                    directory_zip_path=directory_zip_path,
+                )
+            finally:
+                # Clean up temporary zip file
+                if temp_zip_file and directory_zip_path:
+                    try:
+                        directory_zip_path.unlink()
+                    except Exception:
+                        pass
 
             # Print execution results
             print(f"Execution ID: {result['execution_id']}")

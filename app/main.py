@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import zipfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -253,6 +254,63 @@ async def _store_assets(execution_dir: Path, uploads: list[UploadFile]) -> list[
     return sorted(saved)
 
 
+async def _extract_directory_archive(execution_dir: Path, archive_upload: UploadFile) -> list[str]:
+    """Extract a directory archive into the execution directory.
+
+    Args:
+        execution_dir: The execution directory to extract files into
+        archive_upload: The uploaded zip file
+
+    Returns:
+        List of extracted file paths (relative to execution_dir)
+    """
+    if not archive_upload.filename:
+        raise HTTPException(status_code=400, detail="Directory archive must include a filename.")
+
+    try:
+        # Read the zip file content
+        archive_bytes = await archive_upload.read()
+
+        # Create a temporary file to store the zip
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_file:
+            temp_file.write(archive_bytes)
+            temp_zip_path = Path(temp_file.name)
+
+        try:
+            # Extract the zip file
+            extracted_files = []
+            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
+                # Validate all paths before extraction
+                for zip_info in zipf.infolist():
+                    if zip_info.is_dir():
+                        continue
+
+                    # Ensure the file path is safe (no path traversal)
+                    target_path = (execution_dir / zip_info.filename).resolve()
+                    try:
+                        target_path.relative_to(execution_dir)
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid path in archive: {zip_info.filename}"
+                        ) from exc
+
+                # Extract all files
+                zipf.extractall(execution_dir)
+
+                # Collect extracted file paths
+                for zip_info in zipf.infolist():
+                    if not zip_info.is_dir():
+                        extracted_files.append(zip_info.filename)
+
+            return sorted(extracted_files)
+        finally:
+            # Clean up temporary zip file
+            temp_zip_path.unlink()
+    finally:
+        await archive_upload.close()
+
+
 def _load_execution_metadata(execution_dir: Path) -> dict[str, Any]:
     metadata_path = execution_dir / METADATA_FILENAME
     metadata: dict[str, Any] = {}
@@ -438,6 +496,10 @@ async def run_wolframscript(
         default=None,
         description="Optional additional files to stage alongside the script.",
     ),
+    directory_archive: UploadFile | None = File(
+        default=None,
+        description="Optional directory archive (zip) to extract into the execution directory.",
+    ),
     _: None = Depends(_require_password),
 ) -> dict[str, Any]:
     if not file.filename:
@@ -485,8 +547,14 @@ async def run_wolframscript(
     script_path = execution_dir / script_filename
     script_path.write_bytes(content)
 
-    asset_files = assets or []
-    saved_assets = await _store_assets(execution_dir, asset_files) if asset_files else []
+    # Handle directory archive or individual assets
+    saved_assets: list[str] = []
+    if directory_archive:
+        # Extract directory archive
+        saved_assets = await _extract_directory_archive(execution_dir, directory_archive)
+    elif assets:
+        # Store individual assets
+        saved_assets = await _store_assets(execution_dir, assets)
 
     sandbox_profile = _build_sandbox_profile(execution_dir)
     command = [
