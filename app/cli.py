@@ -70,15 +70,32 @@ class WLSClient:
         nickname: str | None = None,
         nickname_mode: str = "unique",
         assets: list[Path] | None = None,
+        assets_base_dir: Path | None = None,
     ) -> dict[str, Any]:
-        """Upload and execute a WolframScript file."""
+        """Upload and execute a WolframScript file.
+
+        Args:
+            script_path: Path to the main script to execute
+            timeout: Execution timeout in seconds
+            nickname: Optional nickname for the execution
+            nickname_mode: Nickname conflict policy ("unique" or "replace")
+            assets: List of asset files to upload
+            assets_base_dir: Base directory for computing relative paths of assets.
+                           If provided, assets will preserve their directory structure
+                           relative to this base directory.
+        """
         self.log(f"Uploading and executing {script_path}...")
 
         # Prepare files for multipart upload. Use a list of tuples to support multiple assets.
         upload_files = [("file", (script_path.name, script_path.read_bytes()))]
         if assets:
             for asset_path in assets:
-                upload_files.append(("assets", (asset_path.name, asset_path.read_bytes())))
+                # Compute relative path if base directory is provided
+                if assets_base_dir:
+                    rel_path = asset_path.relative_to(assets_base_dir).as_posix()
+                    upload_files.append(("assets", (rel_path, asset_path.read_bytes())))
+                else:
+                    upload_files.append(("assets", (asset_path.name, asset_path.read_bytes())))
 
         data = {}
         if nickname:
@@ -516,6 +533,7 @@ def main() -> None:
                 nickname=args.nickname,
                 nickname_mode=args.nickname_mode,
                 assets=assets_to_upload if assets_to_upload else None,
+                assets_base_dir=args.directory if args.directory else None,
             )
 
             # Print execution results
