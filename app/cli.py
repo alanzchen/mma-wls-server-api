@@ -492,7 +492,10 @@ def main() -> None:
                 print(f"Error: Script file not found: {args.script}", file=sys.stderr)
                 sys.exit(1)
 
-            # Handle directory sync mode
+            # Prepare assets list
+            assets_to_upload = args.assets or []
+
+            # If directory sync mode is enabled, collect all files from directory
             if args.directory:
                 if not args.directory.exists():
                     print(f"Error: Directory not found: {args.directory}", file=sys.stderr)
@@ -501,55 +504,35 @@ def main() -> None:
                     print(f"Error: Not a directory: {args.directory}", file=sys.stderr)
                     sys.exit(1)
 
-                # Collect all files from directory (excluding the main script to avoid duplication)
-                all_assets = []
-                if args.assets:
-                    all_assets.extend(args.assets)
-
-                # Add all files from the directory
+                # Add all files from the directory (excluding the main script to avoid duplication)
                 for file_path in args.directory.rglob("*"):
                     if file_path.is_file() and file_path.resolve() != args.script.resolve():
-                        all_assets.append(file_path)
+                        assets_to_upload.append(file_path)
 
-                # Upload and execute with all directory files as assets
-                result = client.run_script(
-                    args.script,
-                    timeout=args.timeout,
-                    nickname=args.nickname,
-                    nickname_mode=args.nickname_mode,
-                    assets=all_assets if all_assets else None,
-                )
-                print(f"Execution ID: {result['execution_id']}")
-                print(f"Return code: {result['returncode']}")
-                print(f"Elapsed time: {result['elapsed_seconds']:.2f}s")
-                if result.get("stdout"):
-                    print("\n--- STDOUT ---")
-                    print(result["stdout"])
-                if result.get("stderr"):
-                    print("\n--- STDERR ---")
-                    print(result["stderr"])
+            # Upload and execute script
+            result = client.run_script(
+                args.script,
+                timeout=args.timeout,
+                nickname=args.nickname,
+                nickname_mode=args.nickname_mode,
+                assets=assets_to_upload if assets_to_upload else None,
+            )
 
-                # Download any new files created during execution
+            # Print execution results
+            print(f"Execution ID: {result['execution_id']}")
+            print(f"Return code: {result['returncode']}")
+            print(f"Elapsed time: {result['elapsed_seconds']:.2f}s")
+            if result.get("stdout"):
+                print("\n--- STDOUT ---")
+                print(result["stdout"])
+            if result.get("stderr"):
+                print("\n--- STDERR ---")
+                print(result["stderr"])
+
+            # Download any new files created during execution (directory sync mode only)
+            if args.directory:
                 print("\nDownloading new files...")
                 client.sync_download(args.directory, result['execution_id'], delete_local=False)
-            else:
-                # Original behavior for non-directory mode
-                result = client.run_script(
-                    args.script,
-                    timeout=args.timeout,
-                    nickname=args.nickname,
-                    nickname_mode=args.nickname_mode,
-                    assets=args.assets,
-                )
-                print(f"Execution ID: {result['execution_id']}")
-                print(f"Return code: {result['returncode']}")
-                print(f"Elapsed time: {result['elapsed_seconds']:.2f}s")
-                if result.get("stdout"):
-                    print("\n--- STDOUT ---")
-                    print(result["stdout"])
-                if result.get("stderr"):
-                    print("\n--- STDERR ---")
-                    print(result["stderr"])
 
         elif args.command == "list":
             result = client.list_executions()
