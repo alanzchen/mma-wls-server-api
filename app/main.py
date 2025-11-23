@@ -102,6 +102,11 @@ ALLOWED_NICKNAME_MODES = {"unique", "replace"}
 # Allowed Wolfram Language file extensions
 WOLFRAM_FILE_EXTENSIONS = {".wls", ".wl", ".m", ".nb", ".cdf", ".mx"}
 
+# MaTeX working directory (for LaTeX temporary files)
+MATEX_WORKING_DIR_RAW = os.environ.get("WLS_MATEX_WORKING_DIR")
+MATEX_WORKING_DIR = Path(MATEX_WORKING_DIR_RAW).resolve() if MATEX_WORKING_DIR_RAW else Path.home() / ".matex-tmp"
+MATEX_WORKING_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -191,13 +196,127 @@ def _run_wolframscript(
 
 
 def _build_sandbox_profile(working_dir: Path) -> str:
-    path = str(working_dir).replace('"', '\\"')
-    return (
-        "(version 1)\n"
-        "(allow default)\n"
-        f'(allow file-write* (subpath "{path}") (subpath "/tmp"))\n'
-        f'(allow file-read* (subpath "{path}"))\n'
-    )
+    """Build a sandbox profile that allows wolframscript and the LaTeX toolchain (for MaTeX).
+
+    This profile:
+    - Denies everything by default (strict)
+    - Allows wolframscript, pdflatex, and ghostscript to execute
+    - Allows reading system libraries, TeX trees, fonts, and Mathematica installation
+    - Allows writing only to the working directory, MaTeX temp dir, and /tmp
+    """
+    # Escape paths for sandbox profile
+    working_path = str(working_dir).replace('"', '\\"')
+    matex_path = str(MATEX_WORKING_DIR).replace('"', '\\"')
+    home_path = str(Path.home()).replace('"', '\\"')
+
+    return f"""(version 1)
+
+; Start strict and punch holes we need
+(deny default)
+
+; --- Basic things Mathematica and system tools will need ---
+; Read system libraries and frameworks
+(allow file-read*
+  (subpath "/System/Library")
+  (subpath "/usr/lib")
+  (subpath "/usr/share")
+  (subpath "/Library/Frameworks")
+  (subpath "/System/Library/Frameworks"))
+
+; --- Wolfram / Mathematica paths ---
+; Allow reading wolframscript and Mathematica/Wolfram installation
+(allow file-read*
+  (literal "/usr/local/bin/wolframscript")
+  (subpath "/Applications/WolframScript.app")
+  (subpath "/Applications/Mathematica.app")
+  (subpath "/Applications/Wolfram.app"))
+
+; Allow executing wolframscript
+(allow process-exec
+  (literal "/usr/local/bin/wolframscript")
+  (literal "/Applications/WolframScript.app/Contents/MacOS/wolframscript"))
+
+; Allow reading user's Mathematica/Wolfram configuration
+(allow file-read*
+  (subpath "{home_path}/Library/Mathematica")
+  (subpath "{home_path}/.Mathematica")
+  (subpath "{home_path}/Library/Wolfram")
+  (subpath "{home_path}/.Wolfram"))
+
+; --- LaTeX toolchain (pdflatex, ghostscript) ---
+; Homebrew paths (adjust if your installation differs)
+(allow file-read*
+  (literal "/opt/homebrew/bin/pdflatex")
+  (literal "/opt/homebrew/bin/gs")
+  (subpath "/opt/homebrew/Cellar/texlive")
+  (subpath "/opt/homebrew/Cellar/ghostscript")
+  (subpath "/opt/homebrew/share/texmf-config")
+  (subpath "/opt/homebrew/share/texmf-dist")
+  (subpath "/opt/homebrew/share/texmf-var")
+  (subpath "/opt/homebrew/opt"))
+
+; Allow executing pdflatex and ghostscript
+(allow process-exec
+  (literal "/opt/homebrew/bin/pdflatex")
+  (literal "/opt/homebrew/bin/gs"))
+
+; Standard TeX paths (if they exist)
+(allow file-read*
+  (subpath "/Library/TeX")
+  (subpath "/usr/local/texlive"))
+
+; Fonts needed by LaTeX and ghostscript
+(allow file-read*
+  (subpath "/System/Library/Fonts")
+  (subpath "/Library/Fonts")
+  (subpath "{home_path}/Library/Fonts"))
+
+; --- Where they're allowed to write ---
+; Working directory (execution directory)
+(allow file-write*
+  (subpath "{working_path}"))
+
+; MaTeX working directory for LaTeX temporary files
+(allow file-write*
+  (subpath "{matex_path}"))
+
+; Temporary files (TeX loves these)
+(allow file-write*
+  (subpath "/private/tmp")
+  (subpath "/tmp")
+  (subpath "/private/var/tmp")
+  (subpath "/var/tmp"))
+
+; Allow reading from working directory
+(allow file-read*
+  (subpath "{working_path}"))
+
+; Allow reading from MaTeX working directory
+(allow file-read*
+  (subpath "{matex_path}"))
+
+; Allow reading temp directories
+(allow file-read*
+  (subpath "/private/tmp")
+  (subpath "/tmp")
+  (subpath "/private/var/tmp")
+  (subpath "/var/tmp"))
+
+; Allow basic process operations
+(allow process-fork)
+(allow process-exec-interpreter)
+
+; Allow network access (Mathematica may need this for licensing, package updates, etc.)
+; Remove or comment out these lines if you want to disable network access
+(allow network-outbound)
+(allow network-inbound (local ip))
+
+; Allow sysctl reads (needed by some tools)
+(allow sysctl-read)
+
+; Allow mach lookups for system services
+(allow mach-lookup)
+"""
 
 
 def _resolve_execution_dir(execution_id: str) -> Path:
