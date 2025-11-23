@@ -242,5 +242,45 @@ curl -X DELETE "http://127.0.0.1:8000/executions/<execution_id>"
 | `WLS_MAX_EXECUTIONS` | Keep only the newest N executions (older ones are removed automatically). |
 | `WLS_CLEANUP_INTERVAL_SECONDS` | Period for the background retention sweep. Defaults to 300 seconds. |
 | `WLS_API_PASSWORD` | If set, requires callers to authenticate using `X-Runner-Password` or `Authorization: Bearer`/Basic headers. |
+| `WLS_MATEX_WORKING_DIR` | Working directory for MaTeX temporary files. Defaults to `~/.matex-tmp`. |
+
+### MaTeX / LaTeX Support
+
+The sandbox profile is configured to allow Wolfram scripts to use [MaTeX](https://github.com/szhorvat/MaTeX) for rendering LaTeX expressions. This requires:
+
+1. **LaTeX toolchain installed** (pdflatex and ghostscript)
+   ```bash
+   # On macOS with Homebrew
+   brew install texlive ghostscript
+   ```
+
+2. **MaTeX configuration in your Wolfram script**
+
+   Configure MaTeX to use the sandbox-friendly working directory:
+   ```mathematica
+   << MaTeX`
+   ConfigureMaTeX[
+     "pdfLaTeX"         -> "/opt/homebrew/bin/pdflatex",
+     "Ghostscript"      -> "/opt/homebrew/bin/gs",
+     "WorkingDirectory" -> FileNameJoin[{$HomeDirectory, ".matex-tmp"}]
+   ]
+
+   (* Now you can use MaTeX *)
+   MaTeX["E = mc^2"]
+   ```
+
+   Or use environment variable to customize the working directory:
+   ```bash
+   export WLS_MATEX_WORKING_DIR=/path/to/custom/matex-tmp
+   ```
+
+3. **Sandbox permissions**
+
+   The sandbox profile automatically grants:
+   - **Process execution** for `wolframscript`, `pdflatex`, and `gs`
+   - **Read access** to TeX trees (`/opt/homebrew/share/texmf-*`), fonts, and system libraries
+   - **Write access** to the execution directory, MaTeX working directory, and `/tmp`
+
+   If your LaTeX or Ghostscript installation paths differ (e.g., installed via MacTeX instead of Homebrew), you'll need to update the paths in `app/main.py:_build_sandbox_profile()`.
 
 > **Warning:** Running arbitrary WolframScript files can be dangerous. Each execution is sandboxed via `sandbox-exec` on macOS, but you should still only run scripts from trusted sources.
