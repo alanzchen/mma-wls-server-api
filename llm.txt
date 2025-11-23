@@ -1,0 +1,146 @@
+# WolframScript Runner API - LLM Quick Reference
+
+## Installing the CLI with uvx
+
+This project provides a CLI tool (`wls`) that is NOT published to PyPI. Install it directly from GitHub:
+
+### One-time Installation
+```bash
+uv pip install git+https://github.com/alanzchen/mma-wls-server-api.git
+```
+
+### Run Without Installing (Recommended for LLMs)
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls [command]
+```
+
+**Important:** Always use the full GitHub URL with uvx since this package is not on PyPI.
+
+## Quick Start
+
+### Configuration
+Set these environment variables or create a `.env` file:
+```bash
+WLS_SERVER_URL=http://localhost:8000
+WLS_API_PASSWORD=your-password-here
+```
+
+Or pass directly:
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls --url http://localhost:8000 --password your-password run script.wls
+```
+
+## Common Commands
+
+### Execute a script
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls run script.wls
+```
+
+### Execute with assets
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls run script.wls --asset data.csv --asset config.json
+```
+
+### Execute with folder sync (upload folder, run script, download new files)
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls run script.wls -d ./my-project
+```
+
+### List all executions
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls list
+```
+
+### Get execution details
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls info <execution_id>
+```
+
+### Download a file
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls get <execution_id> output/result.txt
+```
+
+### Upload a file to existing execution
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls put <execution_id> local_file.csv remote_path.csv
+```
+
+### Execute a file within existing execution directory
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls exec <execution_id> script.wls
+```
+
+### Delete execution
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls delete <execution_id>
+```
+
+## Pro Tips for LLMs
+
+1. **Use environment variables** to avoid repeating `--url` and `--password` flags
+2. **Use uvx** instead of installing globally - it's cleaner and avoids conflicts
+3. **Always specify the full GitHub URL** with uvx: `git+https://github.com/alanzchen/mma-wls-server-api.git`
+4. **Use folder sync (`-d` flag)** for complex projects with multiple files
+5. **Check execution status** with `wls info <execution_id>` before downloading files
+6. **Supported file types:** `.wls`, `.wl`, `.m`, `.nb`, `.cdf`, `.mx`
+
+## Alias for Convenience (Optional)
+
+If using the CLI frequently, create a shell alias:
+```bash
+alias wls='uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls'
+```
+
+Then use it as:
+```bash
+wls run script.wls
+wls list
+wls get abc123 output.txt
+```
+
+## Complete Workflow Example
+
+```bash
+# Set configuration (do this once)
+export WLS_SERVER_URL=http://localhost:8000
+export WLS_API_PASSWORD=my-secret-password
+
+# Execute a script with data
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls run analysis.wls --asset data.csv --timeout 120
+
+# Get the execution_id from the output (e.g., "abc123def456...")
+
+# Check what files were created
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls files abc123def456
+
+# Download results
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls get abc123def456 output/plot.pdf
+
+# Update and re-run
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls put abc123def456 updated_analysis.wls analysis.wls
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls exec abc123def456 analysis.wls
+
+# Clean up when done
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls delete abc123def456
+```
+
+## MaTeX/LaTeX Support
+
+This server supports MaTeX for LaTeX rendering in Wolfram scripts. See README.md for setup instructions.
+
+## Help
+
+Get help on any command:
+```bash
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls help
+uvx --from git+https://github.com/alanzchen/mma-wls-server-api.git wls help run
+```
+
+## Full Documentation
+
+For complete API documentation and advanced usage, see:
+- **LLM.md** - Complete API reference and workflows
+- **README.md** - Full project documentation
+- **examples/** - Example scripts and use cases
