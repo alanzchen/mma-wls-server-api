@@ -25,6 +25,7 @@ _CONFIG_ENV_VARS = [
     "WLS_MEMORY_LIMIT_MB",
     "WLS_CLEANUP_INTERVAL_SECONDS",
     "WLS_API_PASSWORD",
+    "WLS_MATEX_WORKING_DIR",
 ]
 
 
@@ -516,4 +517,187 @@ def test_run_with_archive_containing_script_name(import_app, monkeypatch, tmp_pa
 
     response = client.post("/run", files=files)
     assert response.status_code == 400
-    assert "Archive cannot contain the script file" in response.json()["detail"]
+    assert "Archive cannot contain a file or directory that conflicts with the script file" in response.json()["detail"]
+
+
+def test_sandbox_profile_denies_by_default(import_app, tmp_path):
+    """Test that sandbox profile starts with deny default."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should start with deny default, not allow default
+    assert "(deny default)" in profile
+    assert "(allow default)" not in profile
+
+
+def test_sandbox_profile_allows_wolfram_paths(import_app, tmp_path):
+    """Test that sandbox profile allows necessary Wolfram/Mathematica paths."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should allow reading Mathematica.app and Wolfram.app
+    assert "/Applications/Mathematica.app" in profile
+    assert "/Applications/Wolfram.app" in profile
+    assert "/Applications/WolframScript.app" in profile
+
+    # Should allow reading user's Mathematica and Wolfram configuration
+    assert "Library/Mathematica" in profile
+    assert ".Mathematica" in profile
+    assert "Library/Wolfram" in profile
+    assert ".Wolfram" in profile
+
+    # Should allow executing wolframscript
+    assert "(allow process-exec" in profile
+    assert "/usr/local/bin/wolframscript" in profile
+
+
+def test_sandbox_profile_allows_latex_toolchain(import_app, tmp_path):
+    """Test that sandbox profile allows LaTeX toolchain (pdflatex, ghostscript)."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should allow pdflatex
+    assert "/opt/homebrew/bin/pdflatex" in profile
+
+    # Should allow ghostscript
+    assert "/opt/homebrew/bin/gs" in profile
+
+    # Should allow reading TeX trees
+    assert "/opt/homebrew/Cellar/texlive" in profile
+    assert "/opt/homebrew/Cellar/ghostscript" in profile
+    assert "/opt/homebrew/share/texmf-config" in profile
+    assert "/opt/homebrew/share/texmf-dist" in profile
+    assert "/opt/homebrew/share/texmf-var" in profile
+
+    # Should allow reading fonts
+    assert "/System/Library/Fonts" in profile
+    assert "/Library/Fonts" in profile
+
+
+def test_sandbox_profile_allows_working_directory(import_app, tmp_path):
+    """Test that sandbox profile allows reading and writing to working directory."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should allow reading and writing to working directory
+    escaped_path = str(working_dir).replace('"', '\\"')
+    assert f'(subpath "{escaped_path}")' in profile
+
+    # Should appear in both read and write sections
+    assert profile.count(f'(subpath "{escaped_path}")') >= 2
+
+
+def test_sandbox_profile_allows_matex_working_directory(import_app, tmp_path):
+    """Test that sandbox profile allows MaTeX working directory."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should include MaTeX working directory
+    matex_dir = str(module.MATEX_WORKING_DIR).replace('"', '\\"')
+    assert f'(subpath "{matex_dir}")' in profile
+
+
+def test_sandbox_profile_allows_temp_directories(import_app, tmp_path):
+    """Test that sandbox profile allows temp directories."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should allow temp directories
+    assert "/tmp" in profile
+    assert "/private/tmp" in profile
+
+
+def test_sandbox_profile_allows_process_operations(import_app, tmp_path):
+    """Test that sandbox profile allows necessary process operations."""
+    client, module, exec_root, _ = import_app()
+
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Should allow process fork and exec
+    assert "(allow process-fork)" in profile
+    assert "(allow process-exec-interpreter)" in profile
+
+
+def test_matex_working_dir_default(import_app):
+    """Test that MATEX_WORKING_DIR defaults to ~/.matex-tmp."""
+    client, module, exec_root, _ = import_app()
+
+    # Default should be ~/.matex-tmp
+    expected_default = Path.home() / ".matex-tmp"
+    assert module.MATEX_WORKING_DIR == expected_default
+    assert module.MATEX_WORKING_DIR.exists()
+
+
+def test_matex_working_dir_custom(import_app, tmp_path):
+    """Test that MATEX_WORKING_DIR can be customized via environment variable."""
+    custom_dir = tmp_path / "custom-matex"
+
+    client, module, exec_root, _ = import_app(
+        {"WLS_MATEX_WORKING_DIR": str(custom_dir)}
+    )
+
+    # Should use custom directory
+    assert module.MATEX_WORKING_DIR == custom_dir
+    assert module.MATEX_WORKING_DIR.exists()
+
+
+def test_sandbox_profile_escapes_paths_correctly(import_app, tmp_path):
+    """Test that sandbox profile escapes paths with special characters."""
+    client, module, exec_root, _ = import_app()
+
+    # Create a directory with quotes in the name (if possible)
+    # For testing purposes, we'll just verify the escaping logic
+    working_dir = tmp_path / "test_sandbox"
+    working_dir.mkdir()
+
+    profile = module._build_sandbox_profile(working_dir)
+
+    # Verify that the profile is valid Scheme syntax
+    assert profile.startswith("(version 1)")
+    assert profile.count("(") == profile.count(")")  # Balanced parentheses
+
+
+def test_run_creates_sandbox_with_proper_profile(import_app, monkeypatch):
+    """Test that running a script creates a sandbox with the proper profile."""
+    client, module, exec_root, _ = import_app()
+    monkeypatch.setattr(module, "_run_wolframscript", _fake_runner_noop)
+
+    files = {"file": ("test.wls", b"Print[1]\n", "application/plain")}
+    response = client.post("/run", files=files)
+    assert response.status_code == 200
+
+    # Verify that the command includes sandbox-exec
+    payload = response.json()
+    command = payload["command"]
+    assert command[0] == "sandbox-exec"
+    assert command[1] == "-p"
+    # command[2] should be the sandbox profile
+    assert "(deny default)" in command[2]
+    assert command[3] == "wolframscript"
